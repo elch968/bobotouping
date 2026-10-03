@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">波波投屏</string>
+    <string name="accessibility_label">波波投屏 · 反向控制</string>
+    <string name="accessibility_description">允许电脑端用鼠标操作本机。仅在你主动开启投屏时使用。</string>
+
+    <string name="hint_ip">电脑 IP，例如 192.168.1.10</string>
+    <string name="btn_start">开始投屏</string>
+    <string name="btn_stop">停止投屏</string>
+    <string name="btn_accessibility">开启反向控制（无障碍）</string>
+    <string name="btn_scan">扫码连接</string>
+    <string name="section_target">电脑地址</string>
+    <string name="section_status">状态</string>
+    <string name="scan_prompt">对准电脑上显示的二维码</string>
+
+    <string name="notif_channel_name">投屏中</string>
+    <string name="notif_title">正在投屏</string>
+    <string name="notif_text">屏幕与声音正在发送到电脑</string>
+</resources>
