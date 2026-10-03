@@ -1,0 +1,33 @@
+{
+  "name": "bobotouping-desktop",
+  "version": "1.0.0",
+  "description": "波波投屏 电脑端（接收手机屏幕与声音，并支持反向控制）",
+  "main": "src/main/index.js",
+  "author": "bobotouping",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/loopback.test.js",
+    "dist": "electron-builder --win --x64"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.bobo.touping.desktop",
+    "productName": "波波投屏",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    }
+  }
+}

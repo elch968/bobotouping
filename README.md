@@ -12,6 +12,22 @@ docs/            设计文档
 .github/         GitHub Actions 云构建
 ```
 
+## 电脑端本地运行
+
+电脑端不依赖云构建，本机装好 Node 就能直接跑起来（Node 20 以上即可）：
+
+```powershell
+cd desktop
+npm install
+npm start
+```
+
+跑本地测试（不需要 Electron、不需要真机）：
+
+```powershell
+npm test
+```
+
 ## 云构建
 
 本机不需要安装 Android SDK。代码推送到 `main` 后，GitHub Actions 会自动：

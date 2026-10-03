@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>波波投屏</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h1>波波投屏</h1>
+      <p class="hint">用手机 App 扫描下面的二维码即可连接</p>
+
+      <div class="qr-box">
+        <img id="qr" alt="连接二维码" />
+      </div>
+
+      <div class="field">
+        <label for="address">本机地址</label>
+        <select id="address"></select>
+      </div>
+      <p class="tiny">
+        电脑有多张网卡时，如果手机扫码后连不上，换一个地址再扫一次。
+      </p>
+
+      <div class="status">
+        <div class="row"><span>连接状态</span><b id="conn">等待手机连接</b></div>
+        <div class="row"><span>设备</span><b id="device">—</b></div>
+        <div class="row"><span>画面</span><b id="video">—</b></div>
+        <div class="row"><span>声音</span><b id="audioInfo">—</b></div>
+        <div class="row"><span>网络往返</span><b id="rtt">—</b></div>
+      </div>
+    </aside>
+
+    <main class="stage">
+      <div class="canvas-wrap">
+        <canvas id="screen"></canvas>
+        <div id="placeholder" class="placeholder">
+          <div>还没有画面</div>
+          <div class="tiny">在手机上打开 App，扫码后点击「开始投屏」</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button id="btn-audio" class="primary">开启声音</button>
+        <button id="btn-back">返回</button>
+        <button id="btn-home">主页</button>
+        <button id="btn-recents">多任务</button>
+        <span class="grow"></span>
+        <span class="tiny">在画面上点击/拖动即可反向操作手机</span>
+      </div>
+    </main>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
