@@ -202,6 +202,20 @@ class MainActivity : AppCompatActivity() {
                     "目标：$target"
                 }
             )
+
+            // 服务端上次的失败原因 / 成功时的编码器参数，直接显示在手机上便于排查
+            val lastError = preferences()
+                .getString(ScreenCastService.KEY_LAST_ERROR, "")
+                .orEmpty()
+            if (lastError.isNotBlank()) {
+                add("上次投屏失败：$lastError")
+            }
+            val lastInfo = preferences()
+                .getString(ScreenCastService.KEY_LAST_INFO, "")
+                .orEmpty()
+            if (lastInfo.isNotBlank()) {
+                add(lastInfo)
+            }
         }
         statusView.text = lines.joinToString("\n")
     }

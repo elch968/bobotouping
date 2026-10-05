@@ -15,6 +15,7 @@ const canvas = document.getElementById('screen');
 const placeholder = document.getElementById('placeholder');
 const audioButton = document.getElementById('btn-audio');
 const versionLabel = document.getElementById('version');
+const droppedLabel = document.getElementById('dropped');
 
 // 不要 desynchronized：它走的是低延迟呈现路径，硬件解码出来的 VideoFrame
 // 偶尔会以「只画了一半」的样子上屏，看起来就是桌面预览里花一块。代价只有一帧。
@@ -44,6 +45,7 @@ let audioEnabled = true;
 
 let renderFps = 0;
 let netKbps = 0;
+let netFps = 0;
 
 const FREQ_TABLE = [
   96000, 88200, 64000, 48000, 44100, 32000, 24000,
@@ -367,11 +369,13 @@ document.getElementById('btn-recents').addEventListener('click', () => {
 });
 
 function refreshVideoLabel() {
-  if (!receivedFirstFrame) {
+  if (!receivedFirstFrame && !netFps) {
     videoLabel.textContent = '—';
     return;
   }
-  videoLabel.textContent = `${renderFps} fps · ${netKbps} kbps`;
+  // 「解码」是电脑端真正解出来并上屏的帧率，「收到」是接收线程收到的帧率：
+  // 收到有、解码是 0 说明卡在解码；两个都是 0 说明手机根本没送数据过来。
+  videoLabel.textContent = `解码 ${renderFps} / 收到 ${netFps} fps · ${netKbps} kbps`;
 }
 
 /* ------------------------------ 状态同步 ------------------------------ */
@@ -434,6 +438,8 @@ api.onState((state) => {
     : '';
 
   netKbps = state.kbps || 0;
+  netFps = state.fps || 0;
+  droppedLabel.textContent = `${state.dropped || 0}`;
   refreshVideoLabel();
   rttLabel.textContent = state.rttMs ? `${state.rttMs} ms` : '—';
 

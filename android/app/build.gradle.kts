@@ -11,8 +11,8 @@ android {
         applicationId = "com.bobo.touping"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.2.1"
     }
 
     // 固定签名：CI 通过环境变量提供 keystore。缺省时 storeFile 为 null，自动回退 debug 签名。

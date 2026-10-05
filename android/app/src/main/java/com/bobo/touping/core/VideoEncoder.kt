@@ -12,15 +12,11 @@ import android.view.Surface
  * H.264 硬编码器。输入是 Surface（由 VirtualDisplay 把屏幕画面渲染进来），
  * 输出是 Annex-B 字节流，直接交给 [UdpSender] 分包。
  *
- * 两个直接影响「画面花屏 / 马赛克」的开关：
- *
- * 1. KEY_REPEAT_PREVIOUS_FRAME_AFTER：手机屏幕静止时 VirtualDisplay 不再产生新帧，
- *    编码器也就没有输出。这时接收端一旦丢包、参考帧对不上，画面就会一直停在那张花掉的
- *    画面上（切到别的页面才恢复，因为那时才有新帧进来）。让它每 100ms 补一帧重复画面，
- *    码流就不会断，I 帧间隔也能按时生效，坏画面最多 1 秒自愈。
- * 2. 每个 IDR 前内联 SPS/PPS：接收端重建解码器时不必再等带外配置。
- *
- * 不同机型的编码器对可选参数支持不一致，配置失败会自动退回最小参数集，保证能开流。
+ * 参数策略很保守：只配已经验证过能用的那套（CBR + 无 B 帧 + 低延迟），
+ * 码率先夹到这台机器编码器自己声明的范围内，配置失败再逐级降档重试。
+ * 教训：某些机型对不认识的编码参数会直接拒绝 configure，甚至比换一个参数
+ * 更糟的是「重建编码器」本身也可能失败，所以这里宁可少用花哨参数，
+ * 也不能让整场投屏起不来。
  */
 class VideoEncoder(
     private val width: Int,
@@ -30,8 +26,20 @@ class VideoEncoder(
     private val onFrame: (data: ByteArray, keyframe: Boolean, config: Boolean, tsMs: Long) -> Unit,
 ) {
 
+    /** 实际使用的码率（被编码器能力夹过），用于诊断。 */
+    var usedBitrate: Int = bitrate
+        private set
+
     private val codec: MediaCodec = createConfiguredCodec()
     private val bufferInfo = MediaCodec.BufferInfo()
+
+    /** 实际使用的编码器名字，用于诊断。 */
+    val codecName: String
+        get() = try {
+            codec.name
+        } catch (_: Throwable) {
+            "未知编码器"
+        }
 
     @Volatile
     private var running = false
@@ -84,7 +92,7 @@ class VideoEncoder(
                 }
                 codec.releaseOutputBuffer(index, false)
             } catch (t: Throwable) {
-                if (running) Log.w(TAG, "drain stopped", t)
+                if (running) Log.w(TAG, "编码器输出中断", t)
                 break
             }
         }
@@ -109,30 +117,48 @@ class VideoEncoder(
         }
     }
 
+    /**
+     * 档位 0：已验证参数（CBR / 无 B 帧 / API 30+ 低延迟）
+     * 档位 1：最小参数（连上面那些键都不认的机型）
+     * 每档重试一次：上一次的编码器实例可能还没完全释放。
+     */
     private fun createConfiguredCodec(): MediaCodec {
-        try {
-            return configureCodec(fullFormat())
-        } catch (t: Throwable) {
-            Log.w(TAG, "编码器不支持可选参数，退回最小参数集", t)
-        }
-        return configureCodec(minimalFormat())
-    }
+        var lastError: Throwable? = null
 
-    private fun configureCodec(format: MediaFormat): MediaCodec {
-        val encoder = MediaCodec.createEncoderByType(MIME)
-        try {
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        } catch (t: Throwable) {
-            try {
-                encoder.release()
-            } catch (_: Throwable) {
+        for (tier in 0..1) {
+            repeat(2) { attempt ->
+                try {
+                    val encoder = MediaCodec.createEncoderByType(MIME)
+                    try {
+                        val limit = bitrateWithinCodecRange(encoder)
+                        usedBitrate = limit
+                        encoder.configure(
+                            buildFormat(limit, tier),
+                            null,
+                            null,
+                            MediaCodec.CONFIGURE_FLAG_ENCODE
+                        )
+                        Log.i(
+                            TAG,
+                            "编码器配置成功：${encoder.name} ${width}x$height@$fps ${limit / 1000}kbps（档位 $tier）"
+                        )
+                        return encoder
+                    } catch (t: Throwable) {
+                        releaseQuietly(encoder)
+                        throw t
+                    }
+                } catch (t: Throwable) {
+                    lastError = t
+                    Log.w(TAG, "编码器配置失败（档位 $tier 第 ${attempt + 1} 次）", t)
+                    if (attempt == 0) sleepQuietly(RETRY_DELAY_MS)
+                }
             }
-            throw t
         }
-        return encoder
+
+        throw IllegalStateException("无法配置 H.264 编码器", lastError)
     }
 
-    private fun minimalFormat(): MediaFormat =
+    private fun buildFormat(bitrate: Int, tier: Int): MediaFormat =
         MediaFormat.createVideoFormat(MIME, width, height).apply {
             setInteger(
                 MediaFormat.KEY_COLOR_FORMAT,
@@ -141,38 +167,60 @@ class VideoEncoder(
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_SECONDS)
+
+            if (tier == 0) {
+                setInteger(
+                    MediaFormat.KEY_BITRATE_MODE,
+                    MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // B 帧要等后续帧才能输出，直接增加端到端延迟。
+                    setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    // 0 表示最低延迟模式。
+                    setInteger(MediaFormat.KEY_LATENCY, 0)
+                }
+            }
         }
 
-    private fun fullFormat(): MediaFormat =
-        minimalFormat().apply {
-            setInteger(
-                MediaFormat.KEY_BITRATE_MODE,
-                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
-            )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // B 帧要等后续帧才能输出，直接增加端到端延迟。
-                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
-                // 每个 I 帧前内联 SPS/PPS，接收端重建解码器时更稳。
-                setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
+    /** 把请求的码率夹到这台机器编码器声明的范围内，超出范围有些机型会拒绝配置。 */
+    private fun bitrateWithinCodecRange(encoder: MediaCodec): Int {
+        return try {
+            val range = encoder.codecInfo
+                .getCapabilitiesForType(MIME)
+                .encoderCapabilities
+                .bitrateRange
+            val clamped = bitrate.coerceIn(range.lower, range.upper)
+            if (clamped != bitrate) {
+                Log.i(TAG, "码率 $bitrate 超出编码器范围 $range，改用 $clamped")
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                // 0 表示最低延迟模式。
-                setInteger(MediaFormat.KEY_LATENCY, 0)
-            }
-            // 静止画面也按固定间隔重复上一帧，见类注释。
-            setLong(
-                MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER,
-                REPEAT_FRAME_INTERVAL_US
-            )
+            clamped
+        } catch (t: Throwable) {
+            Log.w(TAG, "读取编码器能力失败", t)
+            bitrate
         }
+    }
+
+    private fun releaseQuietly(encoder: MediaCodec) {
+        try {
+            encoder.release()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun sleepQuietly(ms: Long) {
+        try {
+            Thread.sleep(ms)
+        } catch (_: InterruptedException) {
+        }
+    }
 
     private companion object {
         const val TAG = "VideoEncoder"
         const val MIME = "video/avc"
         const val DEQUEUE_TIMEOUT_US = 10_000L
         const val I_FRAME_INTERVAL_SECONDS = 1
-
-        /** 静止画面补帧间隔（微秒）：10fps，够让码流不断，又几乎不占带宽。 */
-        const val REPEAT_FRAME_INTERVAL_US = 100_000L
+        const val RETRY_DELAY_MS = 150L
     }
 }

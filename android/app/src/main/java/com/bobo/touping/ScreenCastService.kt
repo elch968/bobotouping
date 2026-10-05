@@ -93,6 +93,7 @@ class ScreenCastService : Service() {
 
         if (resultData == null || resultCode == 0 || host.isBlank()) {
             Log.w(TAG, "启动参数不完整")
+            rememberError("投屏参数不完整（可能是投屏授权被拒绝，或没拿到电脑地址）")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -105,6 +106,7 @@ class ScreenCastService : Service() {
             START_NOT_STICKY
         } catch (t: Throwable) {
             Log.e(TAG, "启动投屏失败", t)
+            rememberError(t.message ?: t.javaClass.simpleName)
             stopSelf()
             START_NOT_STICKY
         }
@@ -168,7 +170,25 @@ class ScreenCastService : Service() {
         startStatsLoop()
 
         Log.i(TAG, "投屏已启动 ${videoWidth}x$videoHeight@$fps -> $host")
+        rememberStartInfo(encoder)
     }
+
+    /** 把这次投屏用的编码器信息记下来，手机界面上会显示，便于排查画质/起不来问题。 */
+    private fun rememberStartInfo(encoder: VideoEncoder) {
+        prefs().edit()
+            .putString(KEY_LAST_ERROR, "")
+            .putString(
+                KEY_LAST_INFO,
+                "编码器：${encoder.codecName} / ${videoWidth}x$videoHeight@$fps / ${encoder.usedBitrate / 1000} kbps"
+            )
+            .apply()
+    }
+
+    private fun rememberError(message: String) {
+        prefs().edit().putString(KEY_LAST_ERROR, message).apply()
+    }
+
+    private fun prefs() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
     private fun readScreenMetrics() {
         val metrics = DisplayMetrics()
@@ -387,6 +407,7 @@ class ScreenCastService : Service() {
 
     companion object {
         private const val TAG = "ScreenCastService"
+        private const val PREFS_NAME = "bobotouping"
         private const val CHANNEL_ID = "bobotouping_cast"
         private const val NOTIFICATION_ID = 1001
         private const val DEFAULT_FPS = 60
@@ -397,6 +418,10 @@ class ScreenCastService : Service() {
         private const val BITS_PER_PIXEL = 0.12
         private const val MIN_BITRATE = 10_000_000
         private const val MAX_BITRATE = 24_000_000
+
+        /** 最后一次投屏失败原因 / 成功时的编码器信息，手机界面直接显示，便于排查。 */
+        const val KEY_LAST_ERROR = "last_cast_error"
+        const val KEY_LAST_INFO = "last_cast_info"
 
         const val ACTION_START = "com.bobo.touping.action.START"
         const val ACTION_STOP = "com.bobo.touping.action.STOP"
