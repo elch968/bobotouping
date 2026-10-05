@@ -17,6 +17,9 @@ local.properties
 # 打包产物
 *.exe
 
+# 本地工具与签名密钥备份（签名密钥已存入 GitHub Actions secrets）
+.tools/
+
 # IDE
 .idea/
 .vscode/
