@@ -189,7 +189,7 @@ class VideoEncoder(
         return try {
             val range = encoder.codecInfo
                 .getCapabilitiesForType(MIME)
-                .encoderCapabilities
+                .videoCapabilities
                 .bitrateRange
             val clamped = bitrate.coerceIn(range.lower, range.upper)
             if (clamped != bitrate) {
