@@ -63,10 +63,19 @@ class ScreenCastService : Service() {
     private var framesEncoded = 0L
     private var lastStatsAt = 0L
 
+    /**
+     * 会话代号。teardown 时自增，用来丢弃「上一场投屏的异步回调」，
+     * 避免它们误伤刚开始的新一场投屏。
+     */
+    private var sessionGeneration = 0
+
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             Log.i(TAG, "MediaProjection 被系统停止")
-            stopSelf()
+            val generation = sessionGeneration
+            handler.post {
+                if (generation == sessionGeneration) stopSelf()
+            }
         }
     }
 
@@ -91,6 +100,11 @@ class ScreenCastService : Service() {
         audioEnabled = intent?.getBooleanExtra(EXTRA_AUDIO, true) ?: true
         token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty()
 
+        // 上一场投屏如果还没完全释放（用户「停止」后马上又点「开始」，或者直接重新扫码），
+        // Android 14+ 会认为「已经有一个活跃的投屏会话」，新的录屏授权弹窗会被系统挡掉，
+        // 用户看到的就是「点了没反应」。所以这里先彻底拆掉旧会话，再谈新的。
+        teardownSession()
+
         if (resultData == null || resultCode == 0 || host.isBlank()) {
             Log.w(TAG, "启动参数不完整")
             rememberError("投屏参数不完整（可能是投屏授权被拒绝，或没拿到电脑地址）")
@@ -107,6 +121,7 @@ class ScreenCastService : Service() {
         } catch (t: Throwable) {
             Log.e(TAG, "启动投屏失败", t)
             rememberError(t.message ?: t.javaClass.simpleName)
+            teardownSession()
             stopSelf()
             START_NOT_STICKY
         }
@@ -114,12 +129,16 @@ class ScreenCastService : Service() {
 
     private fun startCasting(resultCode: Int, resultData: Intent) {
         val manager = getSystemService(MediaProjectionManager::class.java)
-        val mp = manager.getMediaProjection(resultCode, resultData)
-            ?: throw IllegalStateException("无法获取 MediaProjection")
+        val mp = obtainProjection(manager, resultCode, resultData)
         projection = mp
 
         // Android 14+ 硬性要求：必须在 createVirtualDisplay 之前注册回调。
         mp.registerCallback(projectionCallback, handler)
+
+        // 每次开始投屏都按默认参数重新来一遍，别把上一场调过的参数带进来。
+        fps = DEFAULT_FPS
+        framesEncoded = 0
+        lastFrameTsMs = 0L
 
         readScreenMetrics()
         computeVideoSize()
@@ -153,24 +172,84 @@ class ScreenCastService : Service() {
         )
 
         if (audioEnabled) {
-            val audioOut = UdpSender(host, audioPort)
-            audioSender = audioOut
-            val audio = AudioEncoder(mp) { data, tsMs ->
-                audioOut.sendSingle(data, data.size, tsMs)
-            }
-            if (audio.start()) {
-                audioEncoder = audio
-            } else {
-                audioSender = null
-                audioOut.close()
-            }
+            startAudioAsync(mp)
         }
 
+        updateRunningState(true)
         connectControl()
         startStatsLoop()
 
         Log.i(TAG, "投屏已启动 ${videoWidth}x$videoHeight@$fps -> $host")
         rememberStartInfo(encoder)
+    }
+
+    /**
+     * 取 MediaProjection。上一场投屏刚 stop 时，个别机型还会「占用」一会儿，
+     * 这里重试几次，避免用户刚好卡在这个窗口上时直接起不来。
+     */
+    private fun obtainProjection(
+        manager: MediaProjectionManager,
+        resultCode: Int,
+        resultData: Intent,
+    ): MediaProjection {
+        var lastError: Throwable? = null
+        for (attempt in 0 until PROJECTION_ATTEMPTS) {
+            try {
+                return manager.getMediaProjection(resultCode, resultData)
+                    ?: throw IllegalStateException("无法获取 MediaProjection")
+            } catch (t: Throwable) {
+                lastError = t
+                Log.w(TAG, "获取 MediaProjection 失败（第 ${attempt + 1} 次）", t)
+                if (attempt < PROJECTION_ATTEMPTS - 1) {
+                    // 有界等待（总计约 200ms），主线程能接受，别让用户看到「没反应」
+                    SystemClock.sleep(PROJECTION_RETRY_DELAY_MS)
+                }
+            }
+        }
+        throw IllegalStateException(
+            "拿不到投屏授权，上一次投屏可能还没释放，请稍等 1 秒再点一次",
+            lastError
+        )
+    }
+
+    /**
+     * 音频初始化要走 AudioRecord + MediaCodec，个别机型上会卡住好几百毫秒甚至更久。
+     * 放到后台线程，保证「开始投屏」这个点击本身立刻有反应。
+     */
+    private fun startAudioAsync(mp: MediaProjection) {
+        val generation = sessionGeneration
+        val audioOut = UdpSender(host, audioPort)
+        audioSender = audioOut
+        val audio = AudioEncoder(mp) { data, tsMs ->
+            audioOut.sendSingle(data, data.size, tsMs)
+        }
+        Thread { initAudio(audio, audioOut, generation) }.apply {
+            name = "audio-init"
+            start()
+        }
+    }
+
+    /** 音频初始化的实际工作，跑在后台线程上，避免卡住「开始投屏」这个点击。 */
+    private fun initAudio(audio: AudioEncoder, audioOut: UdpSender, generation: Int) {
+        val started = try {
+            audio.start()
+        } catch (t: Throwable) {
+            Log.w(TAG, "音频启动失败", t)
+            false
+        }
+        if (generation != sessionGeneration) {
+            // 这一场已经结束了，别把资源挂在新的会话上
+            audio.stop()
+            return
+        }
+        if (started) {
+            audioEncoder = audio
+        } else {
+            audio.stop()
+            audioSender = null
+            audioOut.close()
+            Log.i(TAG, "音频不可用，只投画面")
+        }
     }
 
     /** 把这次投屏用的编码器信息记下来，手机界面上会显示，便于排查画质/起不来问题。 */
@@ -222,19 +301,17 @@ class ScreenCastService : Service() {
     }
 
     private fun connectControl() {
+        val generation = sessionGeneration
         val client = ControlClient(
             host = host,
             port = ctrlPort,
             onMessage = ::handleControlMessage,
-            onClosed = { reason ->
-                Log.i(TAG, "控制通道关闭: $reason")
-                if (reason != null) {
-                    handler.post { stopSelf() }
-                }
-            },
+            onClosed = { reason -> onControlClosed(generation, reason) },
         )
         control = client
         client.connect()
+        // 注意：hello 现在会先在 ControlClient 里排队，等 TCP 真正连上再发出去，
+        // 不会再因为「连上之前就 send」而丢掉握手。
         client.send(
             JSONObject().apply {
                 put("t", "hello")
@@ -245,7 +322,9 @@ class ScreenCastService : Service() {
                 put("dpi", screenDpi)
                 put("videoW", videoWidth)
                 put("videoH", videoHeight)
-                put("audio", audioEncoder != null)
+                // 音频在后台线程初始化，这里先按「打算开音频」上报，
+                // 真实结果随后由 stats 消息刷新到电脑端。
+                put("audio", audioEnabled)
                 put("touch", TouchAccessibilityService.isReady)
                 put("ver", Protocol.VERSION)
                 put("token", token)
@@ -253,8 +332,21 @@ class ScreenCastService : Service() {
         )
     }
 
+    /** 控制通道断开。generation 用来忽略「上一场投屏的旧连接」的收尾回调。 */
+    private fun onControlClosed(generation: Int, reason: String?) {
+        Log.i(TAG, "控制通道关闭: $reason")
+        if (generation != sessionGeneration) return
+        updateControlState(false)
+        if (reason != null) {
+            rememberError(reason)
+            handler.post { stopSelf() }
+        }
+    }
+
     private fun handleControlMessage(msg: JSONObject) {
         when (msg.optString("t")) {
+            "hello_ack" -> updateControlState(true)
+
             "ping" -> control?.send(JSONObject().apply {
                 put("t", "pong")
                 put("ts", msg.optLong("ts"))
@@ -375,6 +467,29 @@ class ScreenCastService : Service() {
         Log.i(TAG, "停止投屏")
         handler.removeCallbacksAndMessages(null)
 
+        teardownSession()
+
+        super.onDestroy()
+    }
+
+    /**
+     * 释放当前会话的全部资源。必须在主线程调用，并且允许重复调用。
+     *
+     * 最关键的一步是 [MediaProjection.stop]：不 stop 的话，Android 14+ 会认为本机
+     * 还有一个活跃的投屏会话，下一次请求录屏授权时系统直接不弹窗 ——
+     * 用户看到的就是「停止投屏之后再点开始投屏，没反应」。
+     */
+    private fun teardownSession() {
+        sessionGeneration += 1
+
+        val hadSession = isRunning || projection != null || videoEncoder != null ||
+            audioEncoder != null || control != null || videoSender != null ||
+            audioSender != null || virtualDisplay != null
+        if (!hadSession) return
+
+        updateRunningState(false)
+        updateControlState(false)
+
         try {
             control?.send(JSONObject().apply { put("t", "bye") })
         } catch (_: Throwable) {
@@ -402,7 +517,21 @@ class ScreenCastService : Service() {
         }
         projection = null
 
-        super.onDestroy()
+        stopForegroundCompat()
+    }
+
+    /** 把前台服务降下来并撤掉通知。重复调用无副作用。 */
+    private fun stopForegroundCompat() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "停止前台服务失败", t)
+        }
     }
 
     companion object {
@@ -419,9 +548,33 @@ class ScreenCastService : Service() {
         private const val MIN_BITRATE = 10_000_000
         private const val MAX_BITRATE = 24_000_000
 
+        /** 上一场投屏刚停止时，个别机型会短暂占用 MediaProjection，最多重试两次。 */
+        private const val PROJECTION_ATTEMPTS = 2
+        private const val PROJECTION_RETRY_DELAY_MS = 200L
+
         /** 最后一次投屏失败原因 / 成功时的编码器信息，手机界面直接显示，便于排查。 */
         const val KEY_LAST_ERROR = "last_cast_error"
         const val KEY_LAST_INFO = "last_cast_info"
+
+        /** 供界面读取的真实会话状态（不再靠界面自己猜）。 */
+        @Volatile
+        private var runningState = false
+
+        /** 与电脑端的控制通道是否已经握手成功（反向控制、状态回传都靠它）。 */
+        @Volatile
+        private var controlState = false
+
+        val isRunning: Boolean get() = runningState
+        val controlConnected: Boolean get() = controlState
+
+        /** 只给本服务用：更新对外暴露的状态。 */
+        internal fun updateRunningState(running: Boolean) {
+            runningState = running
+        }
+
+        internal fun updateControlState(connected: Boolean) {
+            controlState = connected
+        }
 
         const val ACTION_START = "com.bobo.touping.action.START"
         const val ACTION_STOP = "com.bobo.touping.action.STOP"
@@ -463,9 +616,21 @@ class ScreenCastService : Service() {
         }
 
         fun stop(context: Context) {
-            context.startService(
-                Intent(context, ScreenCastService::class.java).apply { action = ACTION_STOP }
-            )
+            // 两条路都走一遍，保证在任何前后台状态下都能停下来：
+            // 1) 显式停止指令 —— 服务在运行时会走 onDestroy 做完整释放；
+            // 2) stopService —— App 在后台、startService 被系统拦住时也能生效。
+            try {
+                context.startService(
+                    Intent(context, ScreenCastService::class.java).apply { action = ACTION_STOP }
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "发送停止指令失败（多半是后台限制了 startService）", t)
+            }
+            try {
+                context.stopService(Intent(context, ScreenCastService::class.java))
+            } catch (t: Throwable) {
+                Log.w(TAG, "停止投屏服务失败", t)
+            }
         }
     }
 }

@@ -10,6 +10,11 @@ const REORDER_WINDOW_MS = 25;
 const KEYFRAME_REQUEST_COOLDOWN_MS = 250;
 /** UDP 默认接收缓冲只有 64KB，一个 I 帧的突发就能把它冲爆、整帧丢光。 */
 const RECV_BUFFER_BYTES = 8 * 1024 * 1024;
+/**
+ * frameId 明显倒退这么多帧，就当成「手机端重开了一场投屏」。
+ * UDP 乱序最多倒退几帧，不会倒退几十帧。
+ */
+const SESSION_RESTART_BACKWARD_GAP = 60;
 
 const U32 = 0x100000000;
 const HALF_U32 = 0x80000000;
@@ -82,6 +87,13 @@ class VideoReceiver {
     const header = parseHeader(msg);
     if (!header) return;
 
+    // 手机端每重新开始一次投屏，frameId 都会从 0 重新数。如果排序游标还停在上一场的末尾，
+    // 新帧会被判成「过期帧」全部丢掉，现象就是：第一次投屏正常，停止后再投永远黑屏。
+    // 这里主动识别新会话并重置排序状态，不再依赖 hello 是否成功送达。
+    if (this.nextFrameId !== null && this.isNewSession(header)) {
+      this.reset();
+    }
+
     this.stats.packets += 1;
     this.stats.bytes += msg.length;
 
@@ -115,6 +127,17 @@ class VideoReceiver {
       });
       this.flush(false);
     }
+  }
+
+  /**
+   * 判断这个包是不是「新一场投屏」的开头。
+   *
+   * 最可靠的信号是 config 包：编码器每次 start() 只会吐一次 SPS/PPS（带 FLAG_CONFIG 标志），
+   * 同一场投屏里不会再出现。第二道保险是 frameId 明显倒退（UDP 乱序最多退几帧，不会退几十帧）。
+   */
+  isNewSession(header) {
+    if ((header.flags & FLAG_CONFIG) !== 0) return true;
+    return this.nextFrameId - header.frameId > SESSION_RESTART_BACKWARD_GAP;
   }
 
   /** 已收齐的帧里，按 u32 回绕比较离 nextFrameId 最近的那个。 */

@@ -45,6 +45,19 @@ html, body {
   line-height: 1.5;
 }
 
+.notice {
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 86, 86, 0.14);
+  border: 1px solid rgba(255, 86, 86, 0.45);
+  color: #ffb4b4;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notice.hidden { display: none; }
+
 .qr-box {
   background: #fff;
   border-radius: 12px;

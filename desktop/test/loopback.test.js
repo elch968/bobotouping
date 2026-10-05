@@ -352,6 +352,90 @@ test('VideoReceiver: 中间缺帧时给后面那帧打 gap 标记并请求补帧
   assert.strictEqual(keyframeRequested, true, '缺帧要请求手机补一个 I 帧');
 });
 
+/**
+ * 回归测试：手机端「停止投屏 → 再开始投屏」时 frameId 从 0 重新数。
+ * 老实现只依赖 hello 来 reset()，而 hello 因为连上前的发送竞态被丢掉，
+ * 于是新一场的帧全被判成过期帧丢掉 —— 表现为第二次投屏永远黑屏。
+ */
+test('VideoReceiver: 手机重开投屏（frameId 从 0 重新开始）能自动识别新会话', async () => {
+  const port = 18999;
+  const delivered = [];
+
+  const receiver = new VideoReceiver({
+    port,
+    onFrame: (data, frame) => delivered.push(frame.frameId),
+    onKeyframeNeeded: () => {},
+    log: silent,
+  });
+  receiver.start();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const socket = dgram.createSocket('udp4');
+  const send = (buf) =>
+    new Promise((resolve) => socket.send(buf, port, '127.0.0.1', resolve));
+
+  // 第一场投屏：frameId 0..150
+  for (let id = 0; id <= 150; id += 1) {
+    await send(buildPacket(id, 0, 1, 0x04, id, id, Buffer.alloc(20, 0x11)));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  // 第二场投屏：frameId 重新从 0 开始，第一个包是编码器吐的 SPS/PPS（config）
+  await send(buildPacket(0, 0, 1, 0x02 | 0x04, 1000, 1000, Buffer.alloc(20, 0x22)));
+  await send(buildPacket(1, 0, 1, 0x01 | 0x04, 1001, 1001, Buffer.alloc(20, 0x33)));
+  await send(buildPacket(2, 0, 1, 0x04, 1002, 1002, Buffer.alloc(20, 0x44)));
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  socket.close();
+  receiver.stop();
+
+  assert.deepStrictEqual(
+    delivered.slice(-3),
+    [0, 1, 2],
+    '第二场投屏的帧必须被交付，不能被当成过期帧丢掉'
+  );
+});
+
+/**
+ * 即使 config 包丢了，frameId 明显倒退也要能识别出新会话。
+ */
+test('VideoReceiver: config 包丢失时靠 frameId 倒退兜底识别新会话', async () => {
+  const port = 19000;
+  const delivered = [];
+
+  const receiver = new VideoReceiver({
+    port,
+    onFrame: (data, frame) => delivered.push(frame.frameId),
+    onKeyframeNeeded: () => {},
+    log: silent,
+  });
+  receiver.start();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const socket = dgram.createSocket('udp4');
+  const send = (buf) =>
+    new Promise((resolve) => socket.send(buf, port, '127.0.0.1', resolve));
+
+  for (let id = 0; id <= 150; id += 1) {
+    await send(buildPacket(id, 0, 1, 0x04, id, id, Buffer.alloc(20, 0x11)));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  // config 包丢了，直接从关键帧 1、2 开始
+  await send(buildPacket(1, 0, 1, 0x01 | 0x04, 1000, 1000, Buffer.alloc(20, 0x33)));
+  await send(buildPacket(2, 0, 1, 0x04, 1001, 1001, Buffer.alloc(20, 0x44)));
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  socket.close();
+  receiver.stop();
+
+  assert.deepStrictEqual(
+    delivered.slice(-2),
+    [1, 2],
+    'frameId 明显倒退也要能继续交付'
+  );
+});
+
 (async () => {
   let passed = 0;
   let failed = 0;

@@ -7,12 +7,13 @@ const net = require('net');
  * 手机连上来后第一条消息必须是 hello，且令牌要匹配，否则直接断开。
  */
 class ControlServer {
-  constructor({ port, token, onHello, onMessage, onDisconnect, log = console }) {
+  constructor({ port, token, onHello, onMessage, onDisconnect, onError, log = console }) {
     this.port = port;
     this.token = token;
     this.onHello = onHello;
     this.onMessage = onMessage;
     this.onDisconnect = onDisconnect;
+    this.onError = onError || (() => {});
     this.log = log;
 
     this.clients = new Set();
@@ -23,6 +24,7 @@ class ControlServer {
     this.server = net.createServer((sock) => this.handle(sock));
     this.server.on('error', (err) => {
       this.log.error('[control] 服务错误:', err.message);
+      this.onError(err);
     });
     this.server.listen(this.port, () => {
       this.log.info(`[control] 监听 0.0.0.0:${this.port}`);

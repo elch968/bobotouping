@@ -38,10 +38,27 @@ const state = {
   connected: false,
   device: null,
   rttMs: 0,
+  notice: '',
   lastKeyframeRequestAt: 0,
   counters: { frames: 0, bytes: 0, dropped: 0 },
   rates: { fps: 0, kbps: 0 },
 };
+
+// 同时开两个实例会抢同一批端口（8765/8766/8768），第二个实例的二维码永远连不上，
+// 表现就是「扫码后没反应」。这里直接保证只有一个实例在跑。
+let hasSingleInstanceLock = true;
+if (!app.requestSingleInstanceLock()) {
+  hasSingleInstanceLock = false;
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
 
 function send(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -58,10 +75,33 @@ function pushState() {
     connected: state.connected,
     device: state.device,
     rttMs: state.rttMs,
+    notice: state.notice,
     fps: state.rates.fps,
     kbps: state.rates.kbps,
     dropped: state.counters.dropped,
   });
+}
+
+/**
+ * 每秒一次的心跳只推「会变的那几个数」。
+ *
+ * 之前每秒都推完整 state（含二维码 base64，十几 KB），渲染端还会顺手把
+ * 「本机地址」下拉框整个重建一次 —— 用户正在选网卡时会被重置，纯属浪费。
+ */
+function pushTelemetry() {
+  send('state', {
+    connected: state.connected,
+    device: state.device,
+    rttMs: state.rttMs,
+    fps: state.rates.fps,
+    kbps: state.rates.kbps,
+    dropped: state.counters.dropped,
+  });
+}
+
+function setNotice(text) {
+  state.notice = text || '';
+  pushState();
 }
 
 function buildQrPayload() {
@@ -132,6 +172,7 @@ function startControlServer() {
     token: state.token,
     onHello: (client, info) => {
       state.connected = true;
+      state.notice = '';
       // 新一次投屏的 frameId 从 0 重新开始，先清掉上一轮的重排序状态
       if (videoReceiver) videoReceiver.reset();
       state.device = {
@@ -151,11 +192,37 @@ function startControlServer() {
       controlServer.send(client, { t: 'start' });
       pushState();
     },
+    // 手机端每秒上报一次真实状态：音频是否真的在录、无障碍是否开着。
+    // hello 里报的是「打算开」，这里才是「真的开起来了」，界面按这个显示更准。
+    onMessage: (_client, msg) => {
+      if (msg.t === 'pong') {
+        // 手机端会把 ping 里的 ts 原样带回来，用本地时间减一下就是网络往返。
+        const rtt = Date.now() - Number(msg.ts);
+        if (Number.isFinite(rtt) && rtt >= 0 && rtt < 10_000) state.rttMs = rtt;
+        return;
+      }
+      if (msg.t !== 'stats' || !state.device) return;
+      const audio = !!msg.audio;
+      const touch = !!msg.touch;
+      if (state.device.audio === audio && state.device.touch === touch) return;
+      state.device = { ...state.device, audio, touch };
+      pushState();
+    },
     onDisconnect: () => {
       state.connected = false;
       state.device = null;
       state.rttMs = 0;
       pushState();
+    },
+    onError: (err) => {
+      if (err && err.code === 'EADDRINUSE') {
+        setNotice(
+          `控制端口 ${PORTS.control} 已被占用，手机连不上。` +
+            '请关掉其它「波波投屏」窗口或占用该端口的程序后重新打开。'
+        );
+      } else {
+        setNotice(`控制服务异常：${err && err.message ? err.message : err}`);
+      }
     },
   });
   controlServer.start();
@@ -182,7 +249,7 @@ function startStatsLoop() {
       controlServer.broadcast({ t: 'ping', ts: Date.now() });
     }
 
-    pushState();
+    pushTelemetry();
   }, 1000);
 }
 
@@ -237,6 +304,8 @@ ipcMain.on('request-keyframe', () => {
 });
 
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return;
+
   const addresses = listLanAddresses();
   const picked = pickLanAddress();
 

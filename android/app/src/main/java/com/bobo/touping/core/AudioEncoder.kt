@@ -118,7 +118,20 @@ class AudioEncoder(
         while (running) {
             val rec = record ?: break
             val read = rec.read(pcm, 0, pcm.size)
-            if (read <= 0) continue
+            if (read <= 0) {
+                // 读取失败时如果直接 continue，会变成死循环：CPU 跑满、声音还是没有。
+                // 真出错了就结束采集（画面不受影响）。
+                if (!running) break
+                if (read == AudioRecord.ERROR_INVALID_OPERATION ||
+                    read == AudioRecord.ERROR_DEAD_OBJECT ||
+                    read == AudioRecord.ERROR_BAD_VALUE
+                ) {
+                    Log.w(TAG, "内录读取失败（$read），停止采集声音")
+                    break
+                }
+                sleepQuietly(5)
+                continue
+            }
 
             val codec = this.codec ?: break
             try {
@@ -211,6 +224,14 @@ class AudioEncoder(
         } catch (_: Throwable) {
         }
         codec = null
+    }
+
+    private fun sleepQuietly(ms: Long) {
+        try {
+            Thread.sleep(ms)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
     }
 
     companion object {

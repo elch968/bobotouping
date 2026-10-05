@@ -16,6 +16,7 @@ const placeholder = document.getElementById('placeholder');
 const audioButton = document.getElementById('btn-audio');
 const versionLabel = document.getElementById('version');
 const droppedLabel = document.getElementById('dropped');
+const noticeLabel = document.getElementById('notice');
 
 // 不要 desynchronized：它走的是低延迟呈现路径，硬件解码出来的 VideoFrame
 // 偶尔会以「只画了一半」的样子上屏，看起来就是桌面预览里花一块。代价只有一帧。
@@ -46,6 +47,7 @@ let audioEnabled = true;
 let renderFps = 0;
 let netKbps = 0;
 let netFps = 0;
+let wasConnected = false;
 
 const FREQ_TABLE = [
   96000, 88200, 64000, 48000, 44100, 32000, 24000,
@@ -108,6 +110,34 @@ function closeDecoder() {
   decoder = null;
   configuredCodec = null;
   configuredDescription = null;
+}
+
+/**
+ * 手机端重新开始投屏（重新连上）时调用：把上一场残留的解码状态清干净。
+ *
+ * 不清的话，上一场结尾留下的 awaitingKeyframe / 旧 description 会让新一场
+ * 的头几秒没有画面，用户看到的就是「重新投屏没反应」。
+ */
+function resetSession() {
+  closeDecoder();
+  awaitingKeyframe = false;
+  awaitingKeyframeSince = 0;
+  lastKeyRequestAt = 0;
+  receivedFirstFrame = false;
+  decodedFrames = 0;
+
+  if (audioDecoder) {
+    try {
+      audioDecoder.close();
+    } catch (_) {
+      /* 忽略 */
+    }
+    audioDecoder = null;
+  }
+  nextPlayTime = 0;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  placeholder.classList.remove('hidden');
 }
 
 function ensureDecoder(frame) {
@@ -412,23 +442,39 @@ api.onVideoFrame(handleVideoFrame);
 api.onAudioFrame(handleAudioFrame);
 
 api.onState((state) => {
+  // 状态分两种推法：完整状态（含二维码 / 网卡列表）和每秒一次的心跳。
+  // 心跳里没有的字段不要当成「空」去覆盖，否则下拉框每秒被重建一次。
   if (state.qrDataUrl && qrImage.src !== state.qrDataUrl) {
     qrImage.src = state.qrDataUrl;
   }
 
+  if (state.notice) {
+    noticeLabel.textContent = state.notice;
+    noticeLabel.classList.remove('hidden');
+  } else {
+    noticeLabel.textContent = '';
+    noticeLabel.classList.add('hidden');
+  }
+
   if (state.version) versionLabel.textContent = `电脑端 v${state.version}`;
 
-  addressSelect.innerHTML = '';
-  for (const item of state.lanAddresses || []) {
-    const option = document.createElement('option');
-    option.value = item.address;
-    option.textContent = `${item.address}  (${item.iface}${item.virtual ? ' · 虚拟网卡' : ''})`;
-    option.selected = item.address === state.selectedAddress;
-    addressSelect.appendChild(option);
+  if (state.lanAddresses) {
+    addressSelect.innerHTML = '';
+    for (const item of state.lanAddresses) {
+      const option = document.createElement('option');
+      option.value = item.address;
+      option.textContent = `${item.address}  (${item.iface}${item.virtual ? ' · 虚拟网卡' : ''})`;
+      option.selected = item.address === state.selectedAddress;
+      addressSelect.appendChild(option);
+    }
   }
 
   connectionLabel.textContent = state.connected ? '已连接' : '等待手机连接';
   connectionLabel.style.color = state.connected ? '#35d07f' : '';
+
+  // 手机端每重新开始一次投屏都是「断开 → 连上」，这里据此重置解码状态
+  if (state.connected && !wasConnected) resetSession();
+  wasConnected = state.connected;
 
   deviceLabel.textContent = state.device
     ? `${state.device.model} · Android ${state.device.android}`

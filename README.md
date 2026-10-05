@@ -28,6 +28,22 @@ npm start
 npm test
 ```
 
+## 电脑端打包
+
+```powershell
+cd desktop
+npm install
+npm run dist            # 生成 Windows 安装版（NSIS 安装包）
+npm run dist:portable   # 需要免安装的便携版时再用
+```
+
+产物在 `desktop/dist/`：
+
+- `波波投屏-电脑端-<版本>-安装包.exe` —— **安装版，推荐**。装一次装到本机，
+  以后双击桌面快捷方式直接秒开。
+- `波波投屏-电脑端-<版本>-便携版.exe` —— 便携版，不占系统、可放 U 盘，但每次启动
+  都要先把上百 MB 解压到临时目录，启动明显更慢。
+
 ## 云构建
 
 本机不需要安装 Android SDK。代码推送到 `main` 后，GitHub Actions 会自动：
@@ -37,8 +53,8 @@ npm test
 
 也可以在 Actions 页面手动触发（`workflow_dispatch`）。
 
-> 当前 release 包用的是 **debug 签名**，方便直接安装测试。
-> 正式发布前需要换成自己的 keystore，并把密码放到 GitHub Secrets 里。
+> CI 会用 GitHub Secrets 里的固定 keystore 签名，保证每次出的包签名一致、可直接覆盖安装。
+> Secrets 没配时自动回退到 debug 签名（方便本地/临时测试）。
 
 ## 手机端使用
 

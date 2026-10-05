@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.widget.Button
 import android.widget.EditText
@@ -32,7 +33,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var accessibilityButton: Button
     private lateinit var statusView: TextView
 
-    private var casting = false
+    /** 本机安装的 App 版本号，显示在状态区，方便确认装的是不是最新包。 */
+    private var appVersion = ""
+
+    /**
+     * 用户点了「开始投屏 / 重新扫码」，但上一场投屏还占着 MediaProjection。
+     * 记下请求时刻，等服务真正停下来再拉录屏授权弹窗。
+     */
+    private var pendingStartSince = 0L
+    private var serviceStoppedAt = 0L
 
     /** 扫码拿到的信息，优先于手动填写的 IP。 */
     private var scannedName = ""
@@ -69,7 +78,7 @@ class MainActivity : AppCompatActivity() {
                 videoPort = if (hasScanned) scannedVideoPort else Protocol.DEFAULT_VIDEO_PORT,
                 audioPort = if (hasScanned) scannedAudioPort else Protocol.DEFAULT_AUDIO_PORT,
             )
-            casting = true
+            serviceStoppedAt = 0L
             renderStatus()
         } else {
             toast("已取消屏幕授权")
@@ -91,7 +100,7 @@ class MainActivity : AppCompatActivity() {
         if (!granted) {
             toast("没有录音权限，只能投画面，手机声音无法传送")
         }
-        requestProjection()
+        requestProjectionWhenIdle()
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -99,7 +108,8 @@ class MainActivity : AppCompatActivity() {
     private val statusTicker = object : Runnable {
         override fun run() {
             renderStatus()
-            handler.postDelayed(this, 1000)
+            pollPendingStart()
+            handler.postDelayed(this, 500)
         }
     }
 
@@ -115,12 +125,14 @@ class MainActivity : AppCompatActivity() {
         statusView = findViewById(R.id.text_status)
 
         hostInput.setText(preferences().getString(KEY_HOST, ""))
+        appVersion = readVersionName()
 
         scanButton.setOnClickListener { launchScanner() }
         startButton.setOnClickListener { ensureNotificationThenCast() }
         stopButton.setOnClickListener {
+            pendingStartSince = 0L
+            serviceStoppedAt = 0L
             ScreenCastService.stop(this)
-            casting = false
             renderStatus()
         }
         accessibilityButton.setOnClickListener { openAccessibilitySettings() }
@@ -129,6 +141,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         renderStatus()
+        pollPendingStart()
         handler.post(statusTicker)
     }
 
@@ -181,7 +194,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderStatus() {
         val lines = buildList {
-            add(if (casting) "投屏状态：已启动" else "投屏状态：未启动")
+            // 状态以服务里的真实情况为准，界面不再自己猜（以前失败也会显示「已启动」）
+            add(if (ScreenCastService.isRunning) "投屏状态：投屏中" else "投屏状态：未启动")
+            if (pendingStartSince != 0L) {
+                add("正在等待上一次投屏结束…")
+            }
+            add(
+                if (ScreenCastService.controlConnected) {
+                    "与电脑端：已连接"
+                } else {
+                    "与电脑端：未连接"
+                }
+            )
             add(
                 if (TouchAccessibilityService.isReady) {
                     "反向控制：已就绪"
@@ -216,8 +240,18 @@ class MainActivity : AppCompatActivity() {
             if (lastInfo.isNotBlank()) {
                 add(lastInfo)
             }
+            if (appVersion.isNotBlank()) {
+                add("App 版本：$appVersion")
+            }
         }
         statusView.text = lines.joinToString("\n")
+    }
+
+    private fun readVersionName(): String = try {
+        @Suppress("DEPRECATION")
+        packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+    } catch (_: Throwable) {
+        ""
     }
 
     private fun ensureNotificationThenCast() {
@@ -251,6 +285,54 @@ class MainActivity : AppCompatActivity() {
             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
+        requestProjectionWhenIdle()
+    }
+
+    /**
+     * 拉录屏授权弹窗之前，先确认没有还活着的投屏会话。
+     *
+     * Android 14+ 不允许一个 App 同时持有两个 MediaProjection：上一场还没释放就去要新的授权，
+     * 系统会直接把弹窗挡掉，用户看到的就是「停止投屏之后再点开始（或重新扫码），没反应」。
+     * 所以这里先把旧会话停掉，等服务报告停止、再留一点时间给系统回收，然后才拉弹窗。
+     */
+    private fun requestProjectionWhenIdle() {
+        if (!ScreenCastService.isRunning) {
+            pendingStartSince = 0L
+            serviceStoppedAt = 0L
+            requestProjection()
+            return
+        }
+
+        if (pendingStartSince == 0L) {
+            toast("正在结束上一次投屏，稍后会自动弹出投屏授权")
+        }
+        pendingStartSince = SystemClock.elapsedRealtime()
+        serviceStoppedAt = 0L
+        ScreenCastService.stop(this)
+    }
+
+    /** 轮询：等旧会话彻底停下来，再去拉授权弹窗。 */
+    private fun pollPendingStart() {
+        if (pendingStartSince == 0L) return
+
+        val sinceRequest = SystemClock.elapsedRealtime() - pendingStartSince
+        if (ScreenCastService.isRunning) {
+            serviceStoppedAt = 0L
+            if (sinceRequest < PENDING_START_TIMEOUT_MS) return
+            // 等了很久服务还说自己活着，可能卡住了，先把请求放掉，让用户能重新点
+            pendingStartSince = 0L
+            toast("上一次投屏没有正常结束，请再点一次「开始投屏」")
+            return
+        }
+
+        if (serviceStoppedAt == 0L) {
+            serviceStoppedAt = SystemClock.elapsedRealtime()
+            return
+        }
+        if (SystemClock.elapsedRealtime() - serviceStoppedAt < STOP_SETTLE_MS) return
+
+        pendingStartSince = 0L
+        serviceStoppedAt = 0L
         requestProjection()
     }
 
@@ -281,5 +363,11 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val KEY_HOST = "host"
+
+        /** 服务报告停止后，再等这么久，给系统回收 MediaProjection 的时间。 */
+        const val STOP_SETTLE_MS = 400L
+
+        /** 等旧会话结束的总超时，避免卡死时用户永远点不动。 */
+        const val PENDING_START_TIMEOUT_MS = 8_000L
     }
 }
