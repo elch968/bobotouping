@@ -34,8 +34,18 @@ jobs:
 
       - name: 安装 Android SDK 组件
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "SDK_ROOT=$SDK_ROOT"
+          SDKMANAGER="$(find "$SDK_ROOT" -name sdkmanager -type f -print -quit 2>/dev/null || true)"
+          echo "SDKMANAGER=$SDKMANAGER"
+          if [ -n "$SDKMANAGER" ]; then
+            export PATH="$(dirname "$SDKMANAGER"):$PATH"
+            yes | sdkmanager --licenses > /dev/null 2>&1 || true
+            sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          else
+            echo "sdkmanager 未在 PATH 中；运行器镜像已预装 android-35 / build-tools 35.0.0 / platform-tools，跳过安装。"
+          fi
 
       - name: 编译 Release APK
         working-directory: android
