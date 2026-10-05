@@ -15,6 +15,20 @@ android {
         versionName = "1.1"
     }
 
+    // 固定签名：CI 通过环境变量提供 keystore。缺省时 storeFile 为 null，自动回退 debug 签名。
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (!storePath.isNullOrBlank() && file(storePath).exists()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                storeType = "pkcs12"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -22,9 +36,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 云构建没有正式证书，先用 debug 签名以便产出可直接安装的 APK。
-            // 正式发布前必须换成自己的 keystore。
-            signingConfig = signingConfigs.getByName("debug")
+            // 云构建通过环境变量注入固定 keystore，保证每次签名一致：
+            // 这样新包可以直接覆盖安装，不用先卸载旧版。本地没配置时回退 debug 签名。
+            val releaseSigning = signingConfigs.getByName("release")
+            signingConfig = if (releaseSigning.storeFile != null) {
+                releaseSigning
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

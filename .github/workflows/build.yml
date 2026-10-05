@@ -47,6 +47,23 @@ jobs:
             echo "sdkmanager 未在 PATH 中；运行器镜像已预装 android-35 / build-tools 35.0.0 / platform-tools，跳过安装。"
           fi
 
+      - name: 写入签名密钥
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/bobotouping.p12"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/bobotouping.p12" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=$KEYSTORE_ALIAS" >> "$GITHUB_ENV"
+            echo "本次构建使用固定签名密钥"
+          else
+            echo "未配置签名密钥，本次回退到 debug 签名"
+          fi
+
       - name: 编译 Release APK
         working-directory: android
         run: gradle assembleRelease --no-daemon --stacktrace
@@ -74,7 +91,7 @@ jobs:
 
             下载地址：https://github.com/elch968/bobotouping/releases/latest/download/bobotouping-android.apk
 
-            当前使用 debug 签名，可直接安装测试；正式发布前需替换为自己的 keystore。
+            已使用固定签名密钥，后续版本可直接覆盖安装，无需先卸载。
           files: out/bobotouping-android.apk
           make_latest: true
 
