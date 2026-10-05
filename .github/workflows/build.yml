@@ -1,0 +1,95 @@
+name: build
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'android/**'
+      - 'desktop/**'
+      - '.github/workflows/build.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: 安装 Android SDK 组件
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: 编译 Release APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bobotouping-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: 整理 APK 文件名
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/*.apk out/bobotouping-android.apk
+
+      - name: 发布到 Release（固定下载地址）
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: 安卓端 APK（最新）
+          body: |
+            自动构建的安卓端安装包。
+
+            下载地址：https://github.com/elch968/bobotouping/releases/latest/download/bobotouping-android.apk
+
+            当前使用 debug 签名，可直接安装测试；正式发布前需替换为自己的 keystore。
+          files: out/bobotouping-android.apk
+          make_latest: true
+
+  desktop:
+    name: Windows 电脑端
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装依赖
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: 打包
+        working-directory: desktop
+        run: npm run dist
+
+      - name: 上传电脑端
+        uses: actions/upload-artifact@v4
+        with:
+          name: bobotouping-desktop
+          path: desktop/dist/*.exe
+          if-no-files-found: error
