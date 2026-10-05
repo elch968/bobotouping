@@ -51,6 +51,7 @@ function send(channel, payload) {
 
 function pushState() {
   send('state', {
+    version: app.getVersion(),
     lanAddresses: state.lanAddresses,
     selectedAddress: state.selectedAddress,
     qrDataUrl: state.qrDataUrl,

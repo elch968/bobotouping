@@ -14,6 +14,7 @@ const rttLabel = document.getElementById('rtt');
 const canvas = document.getElementById('screen');
 const placeholder = document.getElementById('placeholder');
 const audioButton = document.getElementById('btn-audio');
+const versionLabel = document.getElementById('version');
 
 // 不要 desynchronized：它走的是低延迟呈现路径，硬件解码出来的 VideoFrame
 // 偶尔会以「只画了一半」的样子上屏，看起来就是桌面预览里花一块。代价只有一帧。
@@ -410,6 +411,8 @@ api.onState((state) => {
   if (state.qrDataUrl && qrImage.src !== state.qrDataUrl) {
     qrImage.src = state.qrDataUrl;
   }
+
+  if (state.version) versionLabel.textContent = `电脑端 v${state.version}`;
 
   addressSelect.innerHTML = '';
   for (const item of state.lanAddresses || []) {
