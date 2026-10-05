@@ -7,6 +7,10 @@ const crypto = require('crypto');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const QRCode = require('qrcode');
 
+// 允许渲染进程在没有用户点击的情况下直接出声（否则 AudioContext 会一直是 suspended，
+// 手机端声音送过来也是静音）。
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 const { PORTS, VERSION } = require('./protocol');
 const { listLanAddresses, pickLanAddress } = require('./lan');
 const { DiscoveryAdvertiser } = require('./discovery');

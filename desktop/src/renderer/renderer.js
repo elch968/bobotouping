@@ -25,7 +25,8 @@ let decodedFrames = 0;
 let audioDecoder = null;
 let audioContext = null;
 let nextPlayTime = 0;
-let audioEnabled = false;
+// 默认开启声音，手机一连上就能听到，不需要再手动点一下。
+let audioEnabled = true;
 
 let renderFps = 0;
 let netKbps = 0;
@@ -137,9 +138,19 @@ function parseAdts(buf) {
 }
 
 function playAudioData(audioData) {
+  if (!audioEnabled) {
+    audioData.close();
+    return;
+  }
+  if (!audioContext) {
+    ensureAudioContext();
+  }
   if (!audioContext) {
     audioData.close();
     return;
+  }
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
   }
 
   const frames = audioData.numberOfFrames;
@@ -168,6 +179,22 @@ function playAudioData(audioData) {
   audioData.close();
 }
 
+/** 创建并唤醒音频输出（Chromium 在没有用户手势时会把 AudioContext 挂起）。 */
+function ensureAudioContext() {
+  if (!audioContext) {
+    try {
+      audioContext = new AudioContext({ latencyHint: 'interactive' });
+    } catch (err) {
+      console.error('[audio] 无法创建音频输出:', err);
+      return null;
+    }
+  }
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
+  }
+  return audioContext;
+}
+
 function handleAudioFrame(frame) {
   if (!audioEnabled) return;
   if (typeof AudioDecoder === 'undefined') return;
@@ -176,7 +203,7 @@ function handleAudioFrame(frame) {
   if (!info) return;
 
   if (!audioDecoder) {
-    audioContext = audioContext || new AudioContext({ latencyHint: 'interactive' });
+    ensureAudioContext();
     audioDecoder = new AudioDecoder({
       output: playAudioData,
       error: (err) => {
@@ -273,23 +300,29 @@ function refreshVideoLabel() {
 
 /* ------------------------------ 状态同步 ------------------------------ */
 
-audioButton.addEventListener('click', () => {
-  audioEnabled = !audioEnabled;
+function setAudioEnabled(on) {
+  audioEnabled = on;
 
-  if (audioEnabled) {
-    audioContext = audioContext || new AudioContext({ latencyHint: 'interactive' });
-    audioContext.resume();
+  if (on) {
+    ensureAudioContext();
     nextPlayTime = 0;
     audioButton.textContent = '关闭声音';
     audioButton.classList.remove('primary');
   } else {
-    if (audioContext) audioContext.suspend();
+    if (audioContext && audioContext.state === 'running') {
+      audioContext.suspend().catch(() => {});
+    }
     audioButton.textContent = '开启声音';
     audioButton.classList.add('primary');
   }
 
-  audioLabel.textContent = audioEnabled ? '已开启' : '已关闭';
-});
+  audioLabel.textContent = on ? '已开启' : '已关闭';
+}
+
+audioButton.addEventListener('click', () => setAudioEnabled(!audioEnabled));
+
+// 初始就打开声音，避免「投屏有画面但没声音」。
+setAudioEnabled(true);
 
 addressSelect.addEventListener('change', () => {
   api.selectAddress(addressSelect.value);
@@ -326,8 +359,12 @@ api.onState((state) => {
   refreshVideoLabel();
   rttLabel.textContent = state.rttMs ? `${state.rttMs} ms` : '—';
 
-  if (!audioEnabled) {
-    audioLabel.textContent = state.device && state.device.audio ? '待开启' : '—';
+  if (!state.device) {
+    audioLabel.textContent = audioEnabled ? '已开启' : '已关闭';
+  } else if (!state.device.audio) {
+    audioLabel.textContent = '手机未送来声音';
+  } else {
+    audioLabel.textContent = audioEnabled ? '已开启' : '待开启';
   }
 });
 

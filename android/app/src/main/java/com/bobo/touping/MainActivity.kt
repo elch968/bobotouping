@@ -82,6 +82,15 @@ class MainActivity : AppCompatActivity() {
         if (!granted) {
             toast("没有通知权限，投屏时后台可能被杀掉")
         }
+        ensureAudioPermissionThenCast()
+    }
+
+    private val audioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            toast("没有录音权限，只能投画面，手机声音无法传送")
+        }
         requestProjection()
     }
 
@@ -179,6 +188,11 @@ class MainActivity : AppCompatActivity() {
                     "反向控制：未开启（需要开启无障碍服务）"
                 }
             )
+            val audioGranted = ContextCompat.checkSelfPermission(
+                this@MainActivity,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            add(if (audioGranted) "声音传送：已授权" else "声音传送：缺少录音权限")
             val target = hostInput.text.toString().ifBlank { "未填写" }
             add(
                 if (hasScanned) {
@@ -205,6 +219,22 @@ class MainActivity : AppCompatActivity() {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 return
             }
+        }
+        ensureAudioPermissionThenCast()
+    }
+
+    /**
+     * 内录手机声音需要 RECORD_AUDIO 权限；缺了它 AudioRecord 会初始化失败，
+     * 结果就是「只有画面没有声音」。没有授权也允许继续投屏（只是没声音）。
+     */
+    private fun ensureAudioPermissionThenCast() {
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
         }
         requestProjection()
     }
