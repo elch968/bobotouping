@@ -90,6 +90,7 @@ async function refreshQrCode() {
 }
 
 function requestKeyframe() {
+  if (!controlServer) return;
   const now = Date.now();
   if (now - state.lastKeyframeRequestAt < KEYFRAME_REQUEST_MIN_INTERVAL_MS) return;
   state.lastKeyframeRequestAt = now;
@@ -109,6 +110,8 @@ function startReceivers() {
         description: converted.description,
         codec: converted.codec,
         tsMs: frame.tsMs,
+        frameId: frame.frameId,
+        gap: !!frame.gap,
       });
     },
     onKeyframeNeeded: requestKeyframe,
@@ -128,6 +131,8 @@ function startControlServer() {
     token: state.token,
     onHello: (client, info) => {
       state.connected = true;
+      // 新一次投屏的 frameId 从 0 重新开始，先清掉上一轮的重排序状态
+      if (videoReceiver) videoReceiver.reset();
       state.device = {
         model: info.model || '未知设备',
         android: info.android,
@@ -223,6 +228,11 @@ ipcMain.on('input', (_event, message) => {
 
 ipcMain.on('refresh-qr', () => {
   refreshQrCode().then(pushState);
+});
+
+// 渲染端遇到丢帧 / 解码器出错时会请求补一个 I 帧
+ipcMain.on('request-keyframe', () => {
+  requestKeyframe();
 });
 
 app.whenReady().then(async () => {

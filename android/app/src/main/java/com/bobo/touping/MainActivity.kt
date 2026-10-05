@@ -142,7 +142,8 @@ class MainActivity : AppCompatActivity() {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
             setPrompt(getString(R.string.scan_prompt))
             setBeepEnabled(false)
-            setOrientationLocked(false)
+            // 扫码页固定竖屏：见 PortraitCaptureActivity
+            setCaptureActivity(PortraitCaptureActivity::class.java)
         }
         scanLauncher.launch(options)
     }

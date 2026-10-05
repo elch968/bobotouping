@@ -121,6 +121,7 @@ class ScreenCastService : Service() {
 
         readScreenMetrics()
         computeVideoSize()
+        bitrate = computeBitrate()
 
         val videoOut = UdpSender(host, videoPort)
         videoSender = videoOut
@@ -187,6 +188,17 @@ class ScreenCastService : Service() {
         videoHeight = ((screenHeight * scale).toInt() / 2) * 2
         if (videoWidth <= 0) videoWidth = 2
         if (videoHeight <= 0) videoHeight = 2
+    }
+
+    /**
+     * 码率按「像素数 × 帧率」估：屏幕内容（文字、缩略图、图标）比普通视频更吃码率，
+     * 原来的 8Mbps@60fps 只有约 0.065 bit/像素/帧，高细节页面会被压出马赛克。
+     */
+    private fun computeBitrate(): Int {
+        val pixels = videoWidth.toLong() * videoHeight.toLong()
+        return (pixels * fps * BITS_PER_PIXEL)
+            .toInt()
+            .coerceIn(MIN_BITRATE, MAX_BITRATE)
     }
 
     private fun connectControl() {
@@ -378,8 +390,13 @@ class ScreenCastService : Service() {
         private const val CHANNEL_ID = "bobotouping_cast"
         private const val NOTIFICATION_ID = 1001
         private const val DEFAULT_FPS = 60
-        private const val DEFAULT_BITRATE = 8_000_000
+        private const val DEFAULT_BITRATE = 12_000_000
         private const val MAX_LONG_EDGE = 1920
+
+        /** 屏幕内容的经验码率：约 0.12 bit/像素/帧。 */
+        private const val BITS_PER_PIXEL = 0.12
+        private const val MIN_BITRATE = 10_000_000
+        private const val MAX_BITRATE = 24_000_000
 
         const val ACTION_START = "com.bobo.touping.action.START"
         const val ACTION_STOP = "com.bobo.touping.action.STOP"

@@ -22,7 +22,16 @@ import java.net.InetAddress
 class UdpSender(host: String, private val port: Int) {
 
     private val address: InetAddress = InetAddress.getByName(host)
-    private val socket = DatagramSocket()
+
+    private val socket = DatagramSocket().apply {
+        // 一个 I 帧会瞬间发出上百个包，默认 64KB 的发送缓冲很容易把尾部丢掉。
+        try {
+            sendBufferSize = SEND_BUFFER_BYTES
+        } catch (t: Throwable) {
+            Log.w(TAG, "设置发送缓冲失败: ${t.message}")
+        }
+    }
+
     private val packet = ByteArray(Protocol.HEADER_SIZE + Protocol.MAX_PAYLOAD)
 
     private var frameId = 0
@@ -114,5 +123,8 @@ class UdpSender(host: String, private val port: Int) {
 
     private companion object {
         const val TAG = "UdpSender"
+
+        /** 大帧（I 帧）会突发发送，默认发送缓冲太小会丢包。 */
+        const val SEND_BUFFER_BYTES = 4 * 1024 * 1024
     }
 }

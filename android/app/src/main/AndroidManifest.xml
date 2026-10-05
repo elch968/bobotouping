@@ -33,6 +33,15 @@
             </intent-filter>
         </activity>
 
+        <!-- 扫码页固定竖屏（库自带的 CaptureActivity 跟着传感器转，举着手机容易变横屏） -->
+        <activity
+            android:name=".PortraitCaptureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:stateNotNeeded="true"
+            android:theme="@style/zxing_CaptureTheme"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+
         <service
             android:name=".ScreenCastService"
             android:exported="false"

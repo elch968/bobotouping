@@ -278,6 +278,80 @@ test('ControlServer: 正确令牌可以握手并收发消息', async () => {
   server.stop();
 });
 
+/**
+ * 乱序「收齐」的回归测试：101 缺最后一个包，102 先收齐。
+ * 老实现会先把 102 交给解码器，参考帧错位 → 画面花一块。
+ */
+test('VideoReceiver: 先收齐的帧不会插队，仍按 frameId 顺序交付', async () => {
+  const port = 18997;
+  const delivered = [];
+
+  const receiver = new VideoReceiver({
+    port,
+    onFrame: (data, frame) => delivered.push(frame),
+    onKeyframeNeeded: () => {},
+    log: silent,
+  });
+  receiver.start();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const socket = dgram.createSocket('udp4');
+  const send = (buf) =>
+    new Promise((resolve) => socket.send(buf, port, '127.0.0.1', resolve));
+
+  await send(buildPacket(100, 0, 1, 0x04, 1, 1, Buffer.alloc(50, 0x11)));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  await send(buildPacket(101, 0, 2, 0, 2, 2, Buffer.alloc(100, 0x22)));
+  await send(buildPacket(102, 0, 1, 0x04, 3, 3, Buffer.alloc(50, 0x33)));
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await send(buildPacket(101, 1, 2, 0x04, 2, 2, Buffer.alloc(100, 0x22)));
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  socket.close();
+  receiver.stop();
+
+  assert.deepStrictEqual(
+    delivered.map((frame) => frame.frameId),
+    [100, 101, 102],
+    '必须按 frameId 顺序交付'
+  );
+  assert.strictEqual(delivered[1].gap, false, '只是乱序，不该打缺口标记');
+  assert.strictEqual(delivered[2].gap, false, '只是乱序，不该打缺口标记');
+});
+
+test('VideoReceiver: 中间缺帧时给后面那帧打 gap 标记并请求补帧', async () => {
+  const port = 18998;
+  let keyframeRequested = false;
+  const delivered = [];
+
+  const receiver = new VideoReceiver({
+    port,
+    onFrame: (data, frame) => delivered.push(frame),
+    onKeyframeNeeded: () => { keyframeRequested = true; },
+    log: silent,
+  });
+  receiver.start();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const socket = dgram.createSocket('udp4');
+  const send = (buf) =>
+    new Promise((resolve) => socket.send(buf, port, '127.0.0.1', resolve));
+
+  await send(buildPacket(300, 0, 1, 0x04, 1, 1, Buffer.alloc(40, 0x44)));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  // 301 整帧丢掉（一个包都没发）
+  await send(buildPacket(302, 0, 1, 0x04, 2, 2, Buffer.alloc(40, 0x55)));
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  socket.close();
+  receiver.stop();
+
+  assert.deepStrictEqual(delivered.map((frame) => frame.frameId), [300, 302]);
+  assert.strictEqual(delivered[1].gap, true, '缺帧后的那一帧要带 gap 标记');
+  assert.strictEqual(keyframeRequested, true, '缺帧要请求手机补一个 I 帧');
+});
+
 (async () => {
   let passed = 0;
   let failed = 0;
