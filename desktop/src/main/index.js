@@ -20,6 +20,17 @@ const { AudioReceiver } = require('./audio-receiver');
 const { AvccConverter } = require('./annexb');
 
 const KEYFRAME_REQUEST_MIN_INTERVAL_MS = 200;
+/**
+ * 手机端上报的真实屏幕宽高比与投屏画面宽高比，允许的偏差。
+ * 画面尺寸是「按长边缩放 + 取偶数」算出来的，本身有零点几个百分点的误差，
+ * 所以给 1% 的余量，避免正常情况误报。
+ */
+const ASPECT_TOLERANCE = 0.01;
+
+/** 投屏中途旋转屏幕时画面会被系统缩进原画框（出现黑边），点击坐标不再线性对应。 */
+const ORIENTATION_NOTICE =
+  '手机屏幕方向/尺寸已变化：投屏画面已出现黑边，点击位置会整体偏移。' +
+  '请在手机上停止投屏后重新开始。';
 
 let mainWindow = null;
 let controlServer = null;
@@ -39,10 +50,42 @@ const state = {
   device: null,
   rttMs: 0,
   notice: '',
+  inputNotice: '',
+  orientationChanged: false,
   lastKeyframeRequestAt: 0,
   counters: { frames: 0, bytes: 0, dropped: 0 },
   rates: { fps: 0, kbps: 0 },
 };
+
+/**
+ * 界面上只留一条提示条，三种来源按优先级拼出来：服务异常 > 反向控制异常 > 屏幕方向异常。
+ */
+function currentNotice() {
+  if (state.notice) return state.notice;
+  if (state.inputNotice) return state.inputNotice;
+  if (state.orientationChanged) return ORIENTATION_NOTICE;
+  return '';
+}
+
+/**
+ * 手机端上报的真实屏幕尺寸，和投屏画面的宽高比是否还一致。
+ *
+ * 一致就说明「电脑上看到的画面」和「手机上那块屏幕」还是同一个矩形，
+ * 归一化坐标可以线性换算；不一致就说明手机中途转过屏（或折叠屏展开过），
+ * 而 VirtualDisplay 的尺寸还是老样子，画面被缩进了原画框里 —— 此时点哪里都偏。
+ */
+function screenMatchesVideo(info) {
+  if (!state.device) return true;
+  const videoW = Number(state.device.videoW);
+  const videoH = Number(state.device.videoH);
+  const w = Number(info.w);
+  const h = Number(info.h);
+  if (!(videoW > 0 && videoH > 0 && w > 0 && h > 0)) return true;
+  const videoAspect = videoW / videoH;
+  const screenAspect = w / h;
+  const larger = Math.max(videoAspect, screenAspect);
+  return Math.abs(videoAspect - screenAspect) / larger <= ASPECT_TOLERANCE;
+}
 
 // 同时开两个实例会抢同一批端口（8765/8766/8768），第二个实例的二维码永远连不上，
 // 表现就是「扫码后没反应」。这里直接保证只有一个实例在跑。
@@ -75,7 +118,7 @@ function pushState() {
     connected: state.connected,
     device: state.device,
     rttMs: state.rttMs,
-    notice: state.notice,
+    notice: currentNotice(),
     fps: state.rates.fps,
     kbps: state.rates.kbps,
     dropped: state.counters.dropped,
@@ -93,6 +136,9 @@ function pushTelemetry() {
     connected: state.connected,
     device: state.device,
     rttMs: state.rttMs,
+    // 提示条必须跟着心跳一起推：渲染端是按「这次推来的 notice 有没有值」来决定
+    // 显示/隐藏的，心跳里不带它的话，任何提示条最多活 1 秒就被清掉。
+    notice: currentNotice(),
     fps: state.rates.fps,
     kbps: state.rates.kbps,
     dropped: state.counters.dropped,
@@ -101,6 +147,14 @@ function pushTelemetry() {
 
 function setNotice(text) {
   state.notice = text || '';
+  pushState();
+}
+
+/** 反向控制的提示单独存一份，免得被「控制端口占用」之类的提示盖掉后互相冲掉。 */
+function setInputNotice(text) {
+  const next = text || '';
+  if (state.inputNotice === next) return;
+  state.inputNotice = next;
   pushState();
 }
 
@@ -173,6 +227,8 @@ function startControlServer() {
     onHello: (client, info) => {
       state.connected = true;
       state.notice = '';
+      state.inputNotice = '';
+      state.orientationChanged = false;
       // 新一次投屏的 frameId 从 0 重新开始，先清掉上一轮的重排序状态
       if (videoReceiver) videoReceiver.reset();
       state.device = {
@@ -201,17 +257,40 @@ function startControlServer() {
         if (Number.isFinite(rtt) && rtt >= 0 && rtt < 10_000) state.rttMs = rtt;
         return;
       }
+      // 手机端注入失败：以前是纯静默的，用户只看到「点了没反应」。
+      if (msg.t === 'input_error') {
+        setInputNotice(
+          typeof msg.detail === 'string' && msg.detail
+            ? msg.detail
+            : '手机端没能注入触摸，请确认手机上已开启反向控制'
+        );
+        return;
+      }
+      if (msg.t === 'input_ok') {
+        setInputNotice('');
+        return;
+      }
       if (msg.t !== 'stats' || !state.device) return;
       const audio = !!msg.audio;
       const touch = !!msg.touch;
-      if (state.device.audio === audio && state.device.touch === touch) return;
+      const orientationChanged = !screenMatchesVideo(msg);
+      if (
+        state.device.audio === audio &&
+        state.device.touch === touch &&
+        state.orientationChanged === orientationChanged
+      ) {
+        return;
+      }
       state.device = { ...state.device, audio, touch };
+      state.orientationChanged = orientationChanged;
       pushState();
     },
     onDisconnect: () => {
       state.connected = false;
       state.device = null;
       state.rttMs = 0;
+      state.inputNotice = '';
+      state.orientationChanged = false;
       pushState();
     },
     onError: (err) => {

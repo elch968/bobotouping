@@ -4,7 +4,10 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Path
+import android.hardware.display.DisplayManager
+import android.util.DisplayMetrics
 import android.util.Log
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 
 /**
@@ -40,11 +43,49 @@ class TouchAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
+    /**
+     * 触摸注入用的屏幕尺寸。
+     *
+     * 必须和「电脑端看到的画面」是同一套坐标系：画面是 MediaProjection 镜像的
+     * **整块屏幕**（状态栏、导航栏都在里面），所以这里必须取真实屏幕尺寸。
+     *
+     * 不能用 resources.displayMetrics —— 它是 App 的可用区域，绝大多数机型上已经
+     * 扣掉了底部导航栏（部分机型还要再扣掉挖孔安全区），比真实屏幕矮一截。
+     * 拿它换算 [0,1] 坐标，所有触点会整体上移，越往屏幕下方偏得越多：
+     * 点桌面图标点到相邻的应用、点页面底部的按钮完全点不中，就是这么来的。
+     *
+     * 每次都重新取：投屏过程中屏幕旋转、折叠屏展开、系统「显示大小」调整时尺寸都会变，
+     * 缓存下来就会按旧尺寸换算。
+     */
+    private fun screenSize(): Pair<Int, Int> {
+        val metrics = DisplayMetrics()
+        try {
+            val display = getSystemService(DisplayManager::class.java)
+                ?.getDisplay(Display.DEFAULT_DISPLAY)
+            if (display != null) {
+                @Suppress("DEPRECATION")
+                display.getRealMetrics(metrics)
+                if (metrics.widthPixels > 0 && metrics.heightPixels > 0) {
+                    return metrics.widthPixels to metrics.heightPixels
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "读取真实屏幕尺寸失败", t)
+        }
+        // 兜底：拿不到 Display 时退回 App 可用区域（可能偏小，但总比不注入好）
+        val fallback = resources.displayMetrics
+        return fallback.widthPixels to fallback.heightPixels
+    }
+
     /** 归一化坐标 → 屏幕像素。协议里一律传 [0,1]，这样分辨率/旋转变化不用改协议。 */
     private fun toPixels(nx: Float, ny: Float): Pair<Float, Float> {
-        val dm = resources.displayMetrics
-        val x = nx.coerceIn(0f, 1f) * dm.widthPixels
-        val y = ny.coerceIn(0f, 1f) * dm.heightPixels
+        val (screenW, screenH) = screenSize()
+        val width = screenW.coerceAtLeast(1)
+        val height = screenH.coerceAtLeast(1)
+        // 夹到「屏幕内最后一个像素」：归一化值正好是 1.0 时算出来就是 width/height，
+        // 那已经落在屏幕外了，系统会把这个手势判成非法直接丢掉（点右下角没反应）。
+        val x = (nx.coerceIn(0f, 1f) * width).coerceIn(0f, (width - 1).toFloat())
+        val y = (ny.coerceIn(0f, 1f) * height).coerceIn(0f, (height - 1).toFloat())
         return x to y
     }
 
@@ -77,7 +118,13 @@ class TouchAccessibilityService : AccessibilityService() {
     }
 
     private fun dispatch(gesture: GestureDescription): Boolean = try {
-        dispatchGesture(gesture, null, null)
+        val ok = dispatchGesture(gesture, null, null)
+        if (!ok) {
+            // 返回 false 说明系统拒绝了这次注入（无障碍服务被回收/连接断开）。
+            // 这里必须留痕，否则电脑端只会看到「点了没反应」。
+            Log.w(TAG, "手势注入被系统拒绝（无障碍服务可能已断开）")
+        }
+        ok
     } catch (t: Throwable) {
         Log.w(TAG, "手势注入失败", t)
         false

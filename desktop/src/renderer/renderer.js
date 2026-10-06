@@ -380,6 +380,12 @@ canvas.addEventListener('mouseup', (event) => {
 
 canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
+// 在画布外面松开鼠标不会触发 mouseup，dragStart 就会一直留着；下一次点击会变成
+// 「从旧起点拖过来的一小段滑动」，手机端收到的是拖动而不是点击 —— 表现就是点了没反应。
+canvas.addEventListener('mouseleave', () => {
+  dragStart = null;
+});
+
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     api.sendInput({ t: 'key', code: 'back' });

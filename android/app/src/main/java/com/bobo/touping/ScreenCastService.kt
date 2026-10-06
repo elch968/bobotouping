@@ -64,6 +64,16 @@ class ScreenCastService : Service() {
     private var lastStatsAt = 0L
 
     /**
+     * 反向控制的注入结果回报。
+     *
+     * 手机端注入失败（无障碍服务被系统回收、被电脑端断开等）以前是完全静默的，
+     * 电脑端只知道「点了没反应」。这两个字段用来把失败告知电脑端，并且失败期间
+     * 最多每秒回报一次，别把控制通道刷爆。
+     */
+    private var lastInputErrorAt = 0L
+    private var inputErrorReported = false
+
+    /**
      * 会话代号。teardown 时自增，用来丢弃「上一场投屏的异步回调」，
      * 避免它们误伤刚开始的新一场投屏。
      */
@@ -375,11 +385,15 @@ class ScreenCastService : Service() {
     }
 
     private fun handleTouch(msg: JSONObject) {
-        val service = TouchAccessibilityService.instance ?: return
+        val service = TouchAccessibilityService.instance
+        if (service == null) {
+            reportInputResult(false, "手机端无障碍服务未开启或已被系统关闭")
+            return
+        }
         val x = msg.optDouble("x", 0.0).toFloat()
         val y = msg.optDouble("y", 0.0).toFloat()
 
-        when (msg.optString("action")) {
+        val ok = when (msg.optString("action")) {
             "tap", "down", "up" -> service.tap(x, y)
             "swipe" -> {
                 val x2 = msg.optDouble("x2", x.toDouble()).toFloat()
@@ -387,15 +401,57 @@ class ScreenCastService : Service() {
                 val duration = msg.optLong("duration", 150L)
                 service.swipe(x, y, x2, y2, duration)
             }
+            // 不认识的动作用不着报失败（协议日后扩展时，老版本安静跳过即可）
+            else -> true
+        }
+        if (!ok) {
+            reportInputResult(false, "触摸注入被系统拒绝（无障碍服务可能已被回收，请在手机上重新开启）")
+        } else {
+            reportInputResult(true, "")
         }
     }
 
     private fun handleKey(msg: JSONObject) {
-        val service = TouchAccessibilityService.instance ?: return
-        when (msg.optString("code")) {
+        val service = TouchAccessibilityService.instance
+        if (service == null) {
+            reportInputResult(false, "手机端无障碍服务未开启或已被系统关闭")
+            return
+        }
+        val ok = when (msg.optString("code")) {
             "back" -> service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
             "home" -> service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
             "recents" -> service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS)
+            else -> true
+        }
+        if (!ok) {
+            reportInputResult(false, "按键注入被系统拒绝（无障碍服务可能已被回收，请在手机上重新开启）")
+        } else {
+            reportInputResult(true, "")
+        }
+    }
+
+    /**
+     * 把一次注入的结果回报给电脑端。
+     *
+     * 只在「失败」和「失败之后重新成功」这两个时刻发消息：失败消息最多每秒一条
+     * （拖拽/连点时会连续失败），恢复消息只发一次，电脑端据此把提示条收掉。
+     */
+    private fun reportInputResult(ok: Boolean, detail: String) {
+        val client = control ?: return
+        if (!ok) {
+            val now = SystemClock.elapsedRealtime()
+            if (inputErrorReported && now - lastInputErrorAt < INPUT_ERROR_INTERVAL_MS) return
+            inputErrorReported = true
+            lastInputErrorAt = now
+            client.send(
+                JSONObject().apply {
+                    put("t", "input_error")
+                    put("detail", detail)
+                }
+            )
+        } else if (inputErrorReported) {
+            inputErrorReported = false
+            client.send(JSONObject().apply { put("t", "input_ok") })
         }
     }
 
@@ -410,6 +466,9 @@ class ScreenCastService : Service() {
                     val frames = framesEncoded
                     framesEncoded = 0
                     lastStatsAt = now
+                    // 每秒钟重新读一次屏幕尺寸：中途旋转/折叠时电脑端要靠它识别出
+                    // 「画面方向和手机屏幕对不上了」，提醒用户重新开始投屏。
+                    readScreenMetrics()
                     control?.send(
                         JSONObject().apply {
                             put("t", "stats")
@@ -418,6 +477,8 @@ class ScreenCastService : Service() {
                                 (audioSender?.sentBytes ?: 0))
                             put("audio", audioEncoder != null)
                             put("touch", TouchAccessibilityService.isReady)
+                            put("w", screenWidth)
+                            put("h", screenHeight)
                         }
                     )
                 }
@@ -551,6 +612,9 @@ class ScreenCastService : Service() {
         /** 上一场投屏刚停止时，个别机型会短暂占用 MediaProjection，最多重试两次。 */
         private const val PROJECTION_ATTEMPTS = 2
         private const val PROJECTION_RETRY_DELAY_MS = 200L
+
+        /** 注入连续失败时，最多这么久回报一次，避免刷爆控制通道。 */
+        private const val INPUT_ERROR_INTERVAL_MS = 1_000L
 
         /** 最后一次投屏失败原因 / 成功时的编码器信息，手机界面直接显示，便于排查。 */
         const val KEY_LAST_ERROR = "last_cast_error"
