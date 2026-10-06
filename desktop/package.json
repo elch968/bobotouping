@@ -1,13 +1,14 @@
 {
   "name": "bobotouping-desktop",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "波波投屏 电脑端（接收手机屏幕与声音，并支持反向控制）",
   "main": "src/main/index.js",
   "author": "bobotouping",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "test": "node test/loopback.test.js",
+    "test": "node test/license.test.js && node test/loopback.test.js",
+    "test:license": "node test/license.test.js",
     "dist": "electron-builder --win --x64",
     "dist:portable": "electron-builder --win portable --x64"
   },

@@ -20,6 +20,11 @@ local.properties
 # 本地工具与签名密钥备份（签名密钥已存入 GitHub Actions secrets）
 .tools/
 
+# 授权私钥：只在开发者本机，绝不进仓库（丢了就发不出新授权码）
+.tools/license/
+tools/license/*.pem
+license-private*
+
 # IDE
 .idea/
 .vscode/

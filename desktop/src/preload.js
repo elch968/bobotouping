@@ -10,4 +10,6 @@ contextBridge.exposeInMainWorld('bobo', {
   selectAddress: (address) => ipcRenderer.send('select-address', address),
   refreshQr: () => ipcRenderer.send('refresh-qr'),
   requestKeyframe: () => ipcRenderer.send('request-keyframe'),
+  activateLicense: (code) => ipcRenderer.invoke('license:activate', code),
+  copyText: (text) => ipcRenderer.send('copy-text', text),
 });

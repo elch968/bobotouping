@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard } = require('electron');
 const QRCode = require('qrcode');
 
 // 允许渲染进程在没有用户点击的情况下直接出声（否则 AudioContext 会一直是 suspended，
@@ -18,6 +18,7 @@ const { ControlServer } = require('./control-server');
 const { VideoReceiver } = require('./video-receiver');
 const { AudioReceiver } = require('./audio-receiver');
 const { AvccConverter } = require('./annexb');
+const license = require('./license');
 
 const KEYFRAME_REQUEST_MIN_INTERVAL_MS = 200;
 /**
@@ -112,6 +113,7 @@ function send(channel, payload) {
 function pushState() {
   send('state', {
     version: app.getVersion(),
+    license: license.getPublicState(),
     lanAddresses: state.lanAddresses,
     selectedAddress: state.selectedAddress,
     qrDataUrl: state.qrDataUrl,
@@ -171,6 +173,12 @@ function buildQrPayload() {
 }
 
 async function refreshQrCode() {
+  // 没激活就不出二维码。手机端第一条 hello 必须带对令牌，而令牌只印在二维码里，
+  // 所以「不给二维码」= 对方拿不到令牌 = 连不上。
+  if (!license.isActivated()) {
+    state.qrDataUrl = '';
+    return;
+  }
   try {
     state.qrDataUrl = await QRCode.toDataURL(buildQrPayload(), {
       errorCorrectionLevel: 'M',
@@ -332,13 +340,31 @@ function startStatsLoop() {
   }, 1000);
 }
 
+/**
+ * 局域网广播（手机端设备列表的来源）。
+ *
+ * 未激活时不广播自己：一来免得对方在手机上看到一个连不上的设备，
+ * 二来不让这份拷贝在局域网里以「可用接收端」的身份出现。
+ */
+function syncAdvertiser() {
+  if (advertiser) {
+    advertiser.stop();
+    advertiser = null;
+  }
+  if (!license.isActivated()) return;
+
+  advertiser = new DiscoveryAdvertiser({
+    address: state.selectedAddress,
+    name: os.hostname(),
+  });
+  advertiser.start();
+}
+
 function switchLanAddress(address) {
   if (!address || address === state.selectedAddress) return;
   state.selectedAddress = address;
 
-  if (advertiser) advertiser.stop();
-  advertiser = new DiscoveryAdvertiser({ address, name: os.hostname() });
-  advertiser.start();
+  syncAdvertiser();
 
   refreshQrCode().then(pushState);
 }
@@ -382,6 +408,21 @@ ipcMain.on('request-keyframe', () => {
   requestKeyframe();
 });
 
+// 用户在界面上粘贴授权码激活。成功之后二维码、局域网广播一起跟着放出来。
+ipcMain.handle('license:activate', async (_event, code) => {
+  const result = license.activate(code);
+  if (result.ok) {
+    syncAdvertiser();
+    await refreshQrCode();
+    pushState();
+  }
+  return result;
+});
+
+ipcMain.on('copy-text', (_event, text) => {
+  clipboard.writeText(String(text == null ? '' : text));
+});
+
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
 
@@ -392,19 +433,21 @@ app.whenReady().then(async () => {
   state.selectedAddress = picked ? picked.address : '127.0.0.1';
   state.token = crypto.randomBytes(4).toString('hex');
 
-  await refreshQrCode();
+  // 先把窗口显示出来。读硬件信息要跑一次 PowerShell，别让用户对着空屏干等。
   await createWindow();
 
   startControlServer();
   startReceivers();
-  advertiser = new DiscoveryAdvertiser({
-    address: state.selectedAddress,
-    name: os.hostname(),
-  });
-  advertiser.start();
   startStatsLoop();
 
   console.log(`[app] 本机地址 ${state.selectedAddress}，令牌 ${state.token}`);
+
+  // 授权状态就绪后再决定：出不出二维码、要不要在局域网里广播自己。
+  license.init().then(async () => {
+    syncAdvertiser();
+    await refreshQrCode();
+    pushState();
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -11,10 +11,31 @@
   <div class="app">
     <aside class="sidebar">
       <h1>波波投屏</h1>
-      <p class="hint">用手机 App 扫描下面的二维码即可连接</p>
+      <p class="hint" id="qr-hint">用手机 App 扫描下面的二维码即可连接</p>
       <p class="notice hidden" id="notice"></p>
 
-      <div class="qr-box">
+      <!-- 未激活时显示这块，激活后换成下面的二维码 -->
+      <div class="license-box hidden" id="license-box">
+        <p class="license-title">本机未激活</p>
+        <p class="tiny">
+          把下面的设备码发给开发者换取授权码，再粘贴到下面点「激活」。
+        </p>
+        <div class="device-code">
+          <code id="device-code">读取中…</code>
+          <button id="btn-copy-code" class="mini">复制</button>
+        </div>
+        <textarea
+          id="license-input"
+          class="license-input"
+          rows="3"
+          spellcheck="false"
+          placeholder="在这里粘贴授权码（以 BOL1. 开头）"
+        ></textarea>
+        <button id="btn-activate" class="primary block">激活</button>
+        <p class="tiny license-msg" id="license-msg"></p>
+      </div>
+
+      <div class="qr-box" id="qr-box">
         <img id="qr" alt="连接二维码" />
       </div>
 
@@ -34,6 +55,7 @@
         <div class="row"><span>网络往返</span><b id="rtt">—</b></div>
         <div class="row"><span>丢包</span><b id="dropped">—</b></div>
       </div>
+      <p class="tiny" id="license-info"></p>
       <p class="tiny" id="version"></p>
     </aside>
 

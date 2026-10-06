@@ -101,7 +101,7 @@ select {
 }
 
 .status {
-  margin-top: 20px;
+  margin-top: 14px;
   border-top: 1px solid #23304a;
   padding-top: 14px;
 }
@@ -185,4 +185,85 @@ button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+/* 通用隐藏：卡片类元素各自有 display，必须用 !important 才盖得住 */
+.hidden { display: none !important; }
+
+/* ------------------------------ 激活面板 ------------------------------ */
+
+.license-box {
+  margin-bottom: 16px;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(63, 140, 255, 0.08);
+  border: 1px solid #2b3a58;
+}
+
+.license-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffc861;
+}
+
+.device-code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #0f1728;
+  border: 1px solid #2b3a58;
+}
+
+.device-code code {
+  flex: 1;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+button.mini {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.license-input {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #0f1728;
+  color: var(--text);
+  border: 1px solid #2b3a58;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+  word-break: break-all;
+}
+
+.license-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+button.block {
+  display: block;
+  width: 100%;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.license-msg {
+  margin: 8px 0 0;
+  min-height: 16px;
 }

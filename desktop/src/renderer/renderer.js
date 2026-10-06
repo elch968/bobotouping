@@ -17,6 +17,14 @@ const audioButton = document.getElementById('btn-audio');
 const versionLabel = document.getElementById('version');
 const droppedLabel = document.getElementById('dropped');
 const noticeLabel = document.getElementById('notice');
+const licenseBox = document.getElementById('license-box');
+const qrBox = document.getElementById('qr-box');
+const qrHint = document.getElementById('qr-hint');
+const deviceCodeLabel = document.getElementById('device-code');
+const licenseInput = document.getElementById('license-input');
+const activateButton = document.getElementById('btn-activate');
+const licenseMsg = document.getElementById('license-msg');
+const licenseInfo = document.getElementById('license-info');
 
 // 不要 desynchronized：它走的是低延迟呈现路径，硬件解码出来的 VideoFrame
 // 偶尔会以「只画了一半」的样子上屏，看起来就是桌面预览里花一块。代价只有一帧。
@@ -440,6 +448,81 @@ audioButton.addEventListener('click', () => setAudioEnabled(!audioEnabled));
 // 初始就打开声音，避免「投屏有画面但没声音」。
 setAudioEnabled(true);
 
+/* ------------------------------ 授权 ------------------------------ */
+
+let licenseReady = false;
+
+function formatExpiry(seconds) {
+  const date = new Date(seconds * 1000);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function renderLicense(lic) {
+  licenseReady = !!lic.ready;
+
+  if (!licenseReady) {
+    deviceCodeLabel.textContent = '读取中…';
+  } else if (lic.deviceCode && deviceCodeLabel.textContent !== lic.deviceCode) {
+    deviceCodeLabel.textContent = lic.deviceCode;
+  }
+
+  const activated = !!lic.activated;
+  qrBox.classList.toggle('hidden', !activated);
+  qrHint.classList.toggle('hidden', !activated);
+  licenseBox.classList.toggle('hidden', activated);
+
+  if (activated) {
+    const who = lic.licensedTo ? `授权给：${lic.licensedTo}` : '已激活';
+    const until = lic.expiresAt ? `${formatExpiry(lic.expiresAt)} 到期` : '永久有效';
+    licenseInfo.textContent = `${who} · ${until}`;
+    licenseMsg.textContent = '';
+  } else {
+    licenseInfo.textContent = '';
+    if (lic.error) licenseMsg.textContent = lic.error;
+  }
+
+  activateButton.disabled = !licenseReady;
+}
+
+async function activateFromInput() {
+  const code = licenseInput.value.trim();
+  if (!code) {
+    licenseMsg.textContent = '请先粘贴授权码';
+    return;
+  }
+
+  activateButton.disabled = true;
+  activateButton.textContent = '激活中…';
+  try {
+    const result = await api.activateLicense(code);
+    if (result && result.ok) {
+      licenseInput.value = '';
+      licenseMsg.textContent = '激活成功';
+    } else {
+      licenseMsg.textContent = (result && result.message) || '激活失败';
+    }
+  } catch (err) {
+    licenseMsg.textContent = `激活失败：${err.message}`;
+  }
+  activateButton.textContent = '激活';
+  activateButton.disabled = !licenseReady;
+}
+
+activateButton.addEventListener('click', activateFromInput);
+
+document.getElementById('btn-copy-code').addEventListener('click', () => {
+  api.copyText(deviceCodeLabel.textContent.trim());
+  licenseMsg.textContent = '设备码已复制';
+});
+
+// 授权码是一长串，粘贴完顺手按 Ctrl+回车就能激活
+licenseInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    activateFromInput();
+  }
+});
+
 addressSelect.addEventListener('change', () => {
   api.selectAddress(addressSelect.value);
 });
@@ -448,6 +531,8 @@ api.onVideoFrame(handleVideoFrame);
 api.onAudioFrame(handleAudioFrame);
 
 api.onState((state) => {
+  if (state.license) renderLicense(state.license);
+
   // 状态分两种推法：完整状态（含二维码 / 网卡列表）和每秒一次的心跳。
   // 心跳里没有的字段不要当成「空」去覆盖，否则下拉框每秒被重建一次。
   if (state.qrDataUrl && qrImage.src !== state.qrDataUrl) {
