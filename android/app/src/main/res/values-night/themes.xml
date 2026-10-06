@@ -2,16 +2,15 @@
 <resources>
     <style name="Theme.BoboTouping" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand</item>
-        <item name="colorPrimaryDark">@color/brand_deep</item>
+        <item name="colorPrimaryDark">@color/bg_top</item>
         <item name="colorAccent">@color/brand</item>
 
-        <!-- 让系统窗口和页面用同一张浅色渐变底，避免顶部出现一条突兀的色带 -->
         <item name="android:windowBackground">@drawable/bg_screen</item>
         <item name="android:statusBarColor">@color/bg_top</item>
         <item name="android:navigationBarColor">@color/bg_bottom</item>
 
-        <!-- 浅色底：状态栏/导航栏图标用深色 -->
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <!-- 深色底：状态栏/导航栏图标用浅色 -->
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

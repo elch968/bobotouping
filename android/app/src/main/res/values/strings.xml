@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">波波投屏</string>
+    <string name="app_slogan">手机投到电脑 · 同一 WiFi</string>
     <string name="accessibility_label">波波投屏 · 反向控制</string>
     <string name="accessibility_description">允许电脑端用鼠标操作本机。仅在你主动开启投屏时使用。</string>
 
@@ -12,6 +13,46 @@
     <string name="section_target">电脑地址</string>
     <string name="section_status">状态</string>
     <string name="scan_prompt">对准电脑上显示的二维码</string>
+
+    <!-- 顶部状态胶囊 -->
+    <string name="pill_casting">投屏中</string>
+    <string name="pill_idle">未投屏</string>
+
+    <!-- 主状态区 -->
+    <string name="hero_casting">正在投屏</string>
+    <string name="hero_idle">未开始投屏</string>
+    <string name="hero_restarting">正在结束上一次投屏，完成后会自动弹出授权</string>
+    <string name="hero_casting_sub">画面与声音正在发送到 %1$s</string>
+    <string name="hero_casting_sub_no_target">画面与声音正在发送到电脑</string>
+    <string name="hero_ready_sub">准备投递到 %1$s，点「开始投屏」继续</string>
+    <string name="hero_idle_sub">先用「扫码连接」或手动填写电脑 IP</string>
+
+    <!-- 状态明细 -->
+    <string name="label_cast">投屏状态</string>
+    <string name="label_link">与电脑端</string>
+    <string name="label_control">反向控制</string>
+    <string name="label_audio">声音传送</string>
+    <string name="state_cast_on">投屏中</string>
+    <string name="state_cast_off">未启动</string>
+    <string name="state_link_on">已连接</string>
+    <string name="state_link_off">未连接</string>
+    <string name="state_control_on">已开启</string>
+    <string name="state_control_off">未开启</string>
+    <string name="state_audio_on">已授权</string>
+    <string name="state_audio_off">未授权</string>
+
+    <!-- 电脑地址 -->
+    <string name="target_hint">手机与电脑需连接同一个 WiFi。扫码连不上时，手动填写电脑 IP 即可。</string>
+
+    <!-- 反向控制 -->
+    <string name="control_title">反向控制</string>
+    <string name="control_on_hint">已开启，电脑可以用鼠标操作本机屏幕</string>
+    <string name="control_off_hint">未开启，点这里到系统设置里打开</string>
+
+    <!-- 详情（排查用） -->
+    <string name="detail_error">上次投屏失败：%1$s</string>
+    <string name="detail_scanned">扫码识别：%1$s</string>
+    <string name="detail_version">App 版本：%1$s</string>
 
     <string name="notif_channel_name">投屏中</string>
     <string name="notif_title">正在投屏</string>

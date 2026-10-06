@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 品牌色 -->
+    <color name="brand">#3F8CFF</color>
+    <color name="brand_deep">#2A6BE8</color>
+    <color name="brand_soft">#E8F0FF</color>
+    <color name="on_brand">#FFFFFF</color>
+
+    <!-- 页面背景 -->
+    <color name="bg_top">#EAF1FF</color>
+    <color name="bg_bottom">#F7F9FC</color>
+
+    <!-- 卡片与控件 -->
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_alt">#F1F5FB</color>
+    <color name="stroke">#E2E8F2</color>
+    <color name="ripple">#1A0F172A</color>
+
+    <!-- 文字 -->
+    <color name="text_primary">#111827</color>
+    <color name="text_secondary">#64748B</color>
+    <color name="text_tertiary">#94A3B8</color>
+
+    <!-- 状态 -->
+    <color name="state_on">#12B76A</color>
+    <color name="state_off">#BAC3D1</color>
+    <color name="state_warn">#F59E0B</color>
+    <color name="state_error">#EF4444</color>
+
+</resources>

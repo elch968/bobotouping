@@ -1,88 +1,269 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:background="@drawable/bg_screen"
+    android:fillViewport="true"
+    android:scrollbars="none">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingStart="18dp"
+        android:paddingTop="24dp"
+        android:paddingEnd="18dp"
+        android:paddingBottom="28dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textSize="24sp"
-            android:textStyle="bold" />
-
-        <TextView
+        <!-- 标题 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="手机与电脑需连接同一个 WiFi。若电脑端显示不出设备，请手动填写电脑 IP。"
-            android:textSize="13sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/section_target"
-            android:textStyle="bold" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
 
-        <EditText
-            android:id="@+id/input_host"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="@string/hint_ip"
-            android:inputType="text"
-            android:importantForAutofill="no"
-            android:singleLine="true" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_name"
+                    android:textColor="@color/text_primary"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btn_scan"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/btn_scan" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="@string/app_slogan"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
+            <TextView
+                android:id="@+id/pill_status"
+                style="@style/StatusPill"
+                android:text="@string/pill_idle" />
+        </LinearLayout>
+
+        <!-- 状态卡 -->
+        <LinearLayout
+            style="@style/Card"
+            android:layout_marginTop="18dp">
+
+            <TextView
+                android:id="@+id/hero_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/hero_idle"
+                android:textColor="@color/text_primary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/hero_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:lineSpacingExtra="2dp"
+                android:text="@string/hero_idle_sub"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="16dp"
+                android:background="@color/stroke" />
+
+            <LinearLayout style="@style/StatusRow">
+
+                <View
+                    android:id="@+id/dot_cast"
+                    style="@style/StatusDot" />
+
+                <TextView
+                    style="@style/StatusLabel"
+                    android:text="@string/label_cast" />
+
+                <TextView
+                    android:id="@+id/value_cast"
+                    style="@style/StatusValue"
+                    android:text="@string/state_cast_off" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/StatusRow">
+
+                <View
+                    android:id="@+id/dot_link"
+                    style="@style/StatusDot" />
+
+                <TextView
+                    style="@style/StatusLabel"
+                    android:text="@string/label_link" />
+
+                <TextView
+                    android:id="@+id/value_link"
+                    style="@style/StatusValue"
+                    android:text="@string/state_link_off" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/StatusRow">
+
+                <View
+                    android:id="@+id/dot_control"
+                    style="@style/StatusDot" />
+
+                <TextView
+                    style="@style/StatusLabel"
+                    android:text="@string/label_control" />
+
+                <TextView
+                    android:id="@+id/value_control"
+                    style="@style/StatusValue"
+                    android:text="@string/state_control_off" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/StatusRow">
+
+                <View
+                    android:id="@+id/dot_audio"
+                    style="@style/StatusDot" />
+
+                <TextView
+                    style="@style/StatusLabel"
+                    android:text="@string/label_audio" />
+
+                <TextView
+                    android:id="@+id/value_audio"
+                    style="@style/StatusValue"
+                    android:text="@string/state_audio_off" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 电脑地址卡 -->
+        <LinearLayout
+            style="@style/Card"
+            android:layout_marginTop="14dp">
+
+            <TextView
+                style="@style/SectionTitle"
+                android:text="@string/section_target" />
+
+            <TextView
+                style="@style/SectionHint"
+                android:text="@string/target_hint" />
+
+            <EditText
+                android:id="@+id/input_host"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_field"
+                android:hint="@string/hint_ip"
+                android:imeOptions="actionDone"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_tertiary"
+                android:textSize="15sp"
+                app:backgroundTint="@null" />
+
+            <Button
+                android:id="@+id/btn_scan"
+                style="@style/SoftButton"
+                android:layout_marginTop="12dp"
+                android:drawableStart="@drawable/ic_scan"
+                android:text="@string/btn_scan"
+                app:backgroundTint="@null" />
+        </LinearLayout>
+
+        <!-- 主要操作 -->
         <Button
             android:id="@+id/btn_start"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            style="@style/PrimaryButton"
             android:layout_marginTop="16dp"
-            android:text="@string/btn_start" />
+            android:drawableStart="@drawable/ic_play"
+            android:text="@string/btn_start"
+            app:backgroundTint="@null" />
 
         <Button
             android:id="@+id/btn_stop"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/btn_stop" />
+            style="@style/SecondaryButton"
+            android:layout_marginTop="10dp"
+            android:drawableStart="@drawable/ic_stop"
+            android:text="@string/btn_stop"
+            app:backgroundTint="@null" />
 
-        <Button
-            android:id="@+id/btn_accessibility"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/btn_accessibility" />
+        <!-- 反向控制：整行可点，状态直接写在行里 -->
+        <LinearLayout
+            android:id="@+id/row_accessibility"
+            style="@style/CardRow"
+            android:layout_marginTop="14dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/section_status"
-            android:textStyle="bold" />
+            <FrameLayout style="@style/IconChip">
 
-        <TextView
-            android:id="@+id/text_status"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:lineSpacingExtra="4dp"
-            android:textSize="14sp" />
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@string/control_title"
+                    android:src="@drawable/ic_control"
+                    android:tint="@color/brand" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/RowTitle"
+                    android:text="@string/control_title" />
+
+                <TextView
+                    android:id="@+id/text_control_hint"
+                    style="@style/RowHint"
+                    android:text="@string/control_off_hint" />
+            </LinearLayout>
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_marginStart="10dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron"
+                android:tint="@color/text_tertiary" />
+        </LinearLayout>
+
+        <!-- 详情：平时不占地方，只在有内容时出现（排查用） -->
+        <LinearLayout
+            android:id="@+id/card_detail"
+            style="@style/Card"
+            android:layout_marginTop="12dp"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/text_detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:lineSpacingExtra="3dp"
+                android:textColor="@color/text_tertiary"
+                android:textSize="12sp" />
+        </LinearLayout>
 
     </LinearLayout>
 
-</ScrollView>
+</androidx.core.widget.NestedScrollView>
